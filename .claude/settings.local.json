@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(touch /home/jia/python_workStation/OpsKnowledge_agent/demo_data/tickets/.gitkeep)",
+      "Bash(touch /home/jia/python_workStation/OpsKnowledge_agent/demo_data/documents/.gitkeep)",
+      "Bash(pip3 show *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -m pip install --user fastapi uvicorn pydantic pydantic-settings sqlalchemy psycopg2-binary httpx pytest)",
+      "Read(//usr/local/bin/**)",
+      "Read(//home/jia/.local/bin/**)",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(sudo docker *)",
+      "Bash(python3 -c \"import ensurepip; ensurepip.bootstrap\\(\\)\")",
+      "Bash(python3 -m ensurepip --upgrade)",
+      "Bash(curl -sS https://bootstrap.pypa.io/get-pip.py)",
+      "Bash(python3)",
+      "Bash(~/.local/bin/pip install *)",
+      "Bash(PYTHONPATH=. ~/.local/bin/pytest *)"
+    ]
+  }
+}
