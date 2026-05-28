@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 from pypdf import PdfReader
@@ -82,6 +82,7 @@ class DocumentIngestionService:
         source_path = str(self._save_file(project_id, filename, content))
 
         doc = Document(
+            id=uuid4(),  # 先產生 id，供下方 chunk 設定 FK 與回傳結果使用（避免依賴 flush 時機）
             project_id=project_id,
             filename=filename,
             document_type="pdf",
