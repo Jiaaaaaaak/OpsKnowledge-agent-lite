@@ -109,6 +109,52 @@ Semantic search over documents.
 
 ---
 
+## Documents
+
+### `POST /projects/{project_id}/upload/documents`
+
+上傳 PDF 技術手冊或 SOP 文件，自動抽取文字並分塊儲存至 PostgreSQL。
+
+**Path Parameter**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | 專案 ID |
+
+**Request**
+- Content-Type: `multipart/form-data`
+- Field: `file` — PDF 檔案（`.pdf`）
+
+**Response 200**
+```json
+{
+  "document_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "filename": "network_sop.pdf",
+  "page_count": 24,
+  "chunk_count": 87,
+  "source_path": "data/uploads/{project_id}/documents/network_sop.pdf"
+}
+```
+
+| 欄位 | 說明 |
+|---|---|
+| document_id | 建立的 documents 資料列 UUID |
+| page_count | PDF 總頁數 |
+| chunk_count | 儲存至 document_chunks 的分塊數量 |
+| source_path | 檔案在伺服器上的儲存路徑 |
+
+**分塊策略**
+- chunk_size：約 1000 字元
+- overlap：150 字元（相鄰分塊重疊，避免語意截斷）
+- 每個 chunk metadata 包含 `filename`、`page_number`、`chunk_size`
+
+**Errors**
+- `400` — 非 PDF 格式、檔案為空、PDF 無可抽取文字（掃描圖檔）
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID
+
+---
+
 ## Uploads
 
 ### `POST /projects/{project_id}/upload/tickets`

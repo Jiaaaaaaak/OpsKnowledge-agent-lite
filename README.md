@@ -100,6 +100,31 @@ opsknowledge-agent-lite/
   docker-compose.yml
 ```
 
+## Upload PDF Documents
+
+```bash
+# 上傳 PDF 技術手冊或 SOP
+PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
+  -H "Content-Type: application/json" \
+  -d '{"name":"IT Operations Demo"}' | jq -r '.id')
+
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
+  -F "file=@demo_data/documents/your_manual.pdf"
+
+# 預期回應
+# {
+#   "document_id": "...",
+#   "filename": "your_manual.pdf",
+#   "page_count": 24,
+#   "chunk_count": 87,
+#   "source_path": "data/uploads/.../your_manual.pdf"
+# }
+```
+
+> **Note:** Place public domain manuals (e.g., open-source SOP PDFs, RFC documents)
+> in `demo_data/documents/` for demo purposes. Files in this directory are excluded
+> from git tracking. Uploaded files are stored under `backend/data/uploads/`.
+
 ## Upload Incident Tickets
 
 ```bash

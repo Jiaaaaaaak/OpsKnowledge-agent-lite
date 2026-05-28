@@ -60,9 +60,28 @@ graph TD
 ## Data Flow
 
 ### Document RAG
+
 ```
-PDF Upload → pdfplumber parse → text chunks → OpenAI embeddings → ChromaDB
+POST /projects/{id}/upload/documents
+  │
+  ├─ 副檔名驗證（.pdf only）
+  │
+  ├─ _extract_pages()  pypdf.PdfReader → [(page_num, text), ...]
+  │    └─ 非文字 PDF（掃描圖檔）→ 400 Bad Request
+  │
+  ├─ _save_file()  寫入 data/uploads/{project_id}/documents/{filename}
+  │
+  ├─ documents INSERT（filename, document_type="pdf", source_path, metadata.page_count）
+  │
+  ├─ 逐頁 _chunk_text()  滑動視窗（chunk_size=1000, overlap=150）
+  │    └─ 每個 chunk → document_chunks INSERT
+  │         metadata: { filename, page_number, chunk_size }
+  │
+  └─ 回傳 DocumentIngestionResult
+       { document_id, filename, page_count, chunk_count, source_path }
+
 Query → embed question → ChromaDB similarity search → top-k chunks → LLM answer
+（embedding pipeline 待 Step 4 實作）
 ```
 
 ### Incident ETL + AI Analysis
