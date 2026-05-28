@@ -61,8 +61,9 @@ If you genuinely think a convention is harmful, surface it. Don't fork silently.
 "Tests pass" is wrong if any were skipped.
 Default to surfacing uncertainty, not hiding it.
 
-## Rule 13 — 程式碼以外一律使用繁體中文
-程式碼本身（識別字、語法）維持原樣，但程式碼以外的內容一律使用繁體中文：
-- 註解（comments）
-- 文件（documentation、README、commit message 等）
-- 對使用者的回覆
+## Rule 13 — 語言規範
+程式碼本身（識別字、語法）維持原樣。其餘內容依類型分流：
+- 文件（README、docs/*.md）：主文件以**英文**為準，繁體中文放在對應的 `.zh-TW.md`（例如 `docs/API.md` ↔ `docs/API.zh-TW.md`），並在頁首加上語言切換連結。
+- 註解（comments）：繁體中文。
+- 對使用者的回覆：繁體中文。
+- commit message：繁體中文。
