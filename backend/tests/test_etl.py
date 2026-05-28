@@ -266,7 +266,7 @@ class TestParseCSV:
         assert rows[1]["problem"] == "Another"
 
     def test_bom_utf8(self):
-        content = "﻿ticket_id,problem\nTKT-001,Error".encode("utf-8-sig")
+        content = "ticket_id,problem\nTKT-001,Error".encode("utf-8-sig")
         rows = self.svc._parse_csv(content)
         assert "ticket_id" in rows[0]
 
