@@ -1,5 +1,7 @@
 # Demo Script — OpsKnowledge Agent Lite
 
+English | [繁體中文](DEMO_SCRIPT.zh-TW.md)
+
 Total demo time: ~8 minutes.
 
 ---

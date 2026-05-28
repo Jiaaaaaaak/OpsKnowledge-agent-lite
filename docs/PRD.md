@@ -1,5 +1,7 @@
 # Product Requirements Document — OpsKnowledge Agent Lite
 
+English | [繁體中文](PRD.zh-TW.md)
+
 ## Problem
 
 IT/Operations teams manage large volumes of technical documentation (manuals, SOPs) and incident records (tickets, maintenance logs), but:

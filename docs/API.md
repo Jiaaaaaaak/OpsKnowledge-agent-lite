@@ -1,5 +1,7 @@
 # API Reference — OpsKnowledge Agent Lite
 
+English | [繁體中文](API.zh-TW.md)
+
 Base URL: `http://localhost:8000`
 
 Interactive docs: `http://localhost:8000/docs`
@@ -28,7 +30,7 @@ Returns service status including DB and ChromaDB connectivity.
 
 ### `POST /projects/`
 
-新建專案。
+Create a new project.
 
 **Request Body**
 ```json
@@ -38,10 +40,10 @@ Returns service status including DB and ChromaDB connectivity.
 }
 ```
 
-| 欄位 | 型別 | 必填 | 說明 |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| name | string | ✅ | 專案名稱 |
-| description | string | — | 專案描述（可選） |
+| name | string | ✅ | Project name |
+| description | string | — | Project description (optional) |
 
 **Response 201**
 ```json
@@ -55,13 +57,13 @@ Returns service status including DB and ChromaDB connectivity.
 ```
 
 **Errors**
-- `422` — name 為空或 request body 格式錯誤
+- `422` — name is empty or the request body is malformed
 
 ---
 
 ### `GET /projects/`
 
-列出所有專案（依 `created_at` 降冪排列）。
+List all projects (ordered by `created_at` descending).
 
 **Response 200**
 ```json
@@ -80,19 +82,19 @@ Returns service status including DB and ChromaDB connectivity.
 
 ### `GET /projects/{project_id}`
 
-取得單一專案詳情。
+Get the details of a single project.
 
 **Path Parameter**
 
-| 參數 | 型別 | 說明 |
+| Parameter | Type | Description |
 |---|---|---|
-| project_id | UUID | 專案 ID |
+| project_id | UUID | Project ID |
 
-**Response 200** — 同 ProjectRead 結構
+**Response 200** — same as the ProjectRead schema
 
 **Errors**
 - `404` — `{"detail": "Project not found"}`
-- `422` — project_id 不是合法 UUID
+- `422` — project_id is not a valid UUID
 
 ---
 
@@ -113,17 +115,17 @@ Semantic search over documents.
 
 ### `POST /projects/{project_id}/upload/documents`
 
-上傳 PDF 技術手冊或 SOP 文件，自動抽取文字並分塊儲存至 PostgreSQL。
+Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, and stored in PostgreSQL.
 
 **Path Parameter**
 
-| 參數 | 型別 | 說明 |
+| Parameter | Type | Description |
 |---|---|---|
-| project_id | UUID | 專案 ID |
+| project_id | UUID | Project ID |
 
 **Request**
 - Content-Type: `multipart/form-data`
-- Field: `file` — PDF 檔案（`.pdf`）
+- Field: `file` — PDF file (`.pdf`)
 
 **Response 200**
 ```json
@@ -136,22 +138,22 @@ Semantic search over documents.
 }
 ```
 
-| 欄位 | 說明 |
+| Field | Description |
 |---|---|
-| document_id | 建立的 documents 資料列 UUID |
-| page_count | PDF 總頁數 |
-| chunk_count | 儲存至 document_chunks 的分塊數量 |
-| source_path | 檔案在伺服器上的儲存路徑 |
+| document_id | UUID of the created documents row |
+| page_count | Total page count of the PDF |
+| chunk_count | Number of chunks stored in document_chunks |
+| source_path | Path where the file is stored on the server |
 
-**分塊策略**
-- chunk_size：約 1000 字元
-- overlap：150 字元（相鄰分塊重疊，避免語意截斷）
-- 每個 chunk metadata 包含 `filename`、`page_number`、`chunk_size`
+**Chunking strategy**
+- chunk_size: approximately 1000 characters
+- overlap: 150 characters (adjacent chunks overlap to avoid breaking semantics)
+- Each chunk's metadata contains `filename`, `page_number`, `chunk_size`
 
 **Errors**
-- `400` — 非 PDF 格式、檔案為空、PDF 無可抽取文字（掃描圖檔）
+- `400` — not a PDF, empty file, or PDF with no extractable text (scanned image)
 - `404` — `{"detail": "Project not found"}`
-- `422` — project_id 不是合法 UUID
+- `422` — project_id is not a valid UUID
 
 ---
 
@@ -159,21 +161,21 @@ Semantic search over documents.
 
 ### `POST /projects/{project_id}/upload/tickets`
 
-上傳 CSV、Excel 或 JSON 格式的 incident ticket 檔案，執行 ETL 並儲存至 PostgreSQL。
+Upload an incident ticket file in CSV, Excel, or JSON format. Runs ETL and stores the result in PostgreSQL.
 
 **Path Parameter**
 
-| 參數 | 型別 | 說明 |
+| Parameter | Type | Description |
 |---|---|---|
-| project_id | UUID | 專案 ID |
+| project_id | UUID | Project ID |
 
 **Request**
 - Content-Type: `multipart/form-data`
-- Field: `file` — 上傳的檔案（`.csv`、`.xlsx`、`.json`）
+- Field: `file` — uploaded file (`.csv`, `.xlsx`, `.json`)
 
-**支援欄位名稱對應（同義詞）**
+**Supported column name mapping (synonyms)**
 
-| 標準欄位 | 接受的欄位名稱 |
+| Standard column | Accepted column names |
 |---|---|
 | ticket_id | ticket id, id, case_id, ticket |
 | occurred_at | date, created_at, timestamp, datetime |
@@ -184,9 +186,9 @@ Semantic search over documents.
 | status | state, ticket_status |
 | priority | severity, urgency, sev |
 
-**必填欄位**：`ticket_id`、`issue_description`
+**Required columns**: `ticket_id`, `issue_description`
 
-**選填欄位預設值**：`system`、`module`、`status`、`priority` 缺值時填入 `"unknown"`
+**Optional column defaults**: `system`, `module`, `status`, `priority` are filled with `"unknown"` when missing
 
 **Response 200**
 ```json
@@ -204,27 +206,27 @@ Semantic search over documents.
 }
 ```
 
-| 欄位 | 說明 |
+| Field | Description |
 |---|---|
-| raw_count | 解析出的總列數（全數存入 raw_records） |
-| cleaned_count | 成功驗證並存入 cleaned_records 的列數 |
-| failed_count | 驗證失敗的列數 |
-| errors | 各筆失敗的詳細錯誤，含列號與原始 ticket_id |
+| raw_count | Total rows parsed (all stored in raw_records) |
+| cleaned_count | Rows that passed validation and were stored in cleaned_records |
+| failed_count | Rows that failed validation |
+| errors | Per-row failure details, including row number and original ticket_id |
 
 **Errors**
-- `400` — 不支援的檔案格式、檔案為空、解析失敗
+- `400` — unsupported file format, empty file, or parse failure
 - `404` — `{"detail": "Project not found"}`
-- `422` — project_id 不是合法 UUID
+- `422` — project_id is not a valid UUID
 
 ---
 
-## Incidents _(待實作)_
+## Incidents _(to be implemented)_
 
 ### `GET /incidents/`
-列出已匯入的 incident 記錄。
+List imported incident records.
 
 ### `GET /incidents/{id}`
-取得單筆 incident 記錄。
+Get a single incident record.
 
 ---
 

@@ -1,5 +1,7 @@
 # Architecture — OpsKnowledge Agent Lite
 
+English | [繁體中文](ARCHITECTURE.zh-TW.md)
+
 ## Overview
 
 ```mermaid
@@ -64,24 +66,24 @@ graph TD
 ```
 POST /projects/{id}/upload/documents
   │
-  ├─ 副檔名驗證（.pdf only）
+  ├─ Extension validation (.pdf only)
   │
   ├─ _extract_pages()  pypdf.PdfReader → [(page_num, text), ...]
-  │    └─ 非文字 PDF（掃描圖檔）→ 400 Bad Request
+  │    └─ Non-text PDF (scanned image) → 400 Bad Request
   │
-  ├─ _save_file()  寫入 data/uploads/{project_id}/documents/{filename}
+  ├─ _save_file()  write to data/uploads/{project_id}/documents/{filename}
   │
-  ├─ documents INSERT（filename, document_type="pdf", source_path, metadata.page_count）
+  ├─ documents INSERT (filename, document_type="pdf", source_path, metadata.page_count)
   │
-  ├─ 逐頁 _chunk_text()  滑動視窗（chunk_size=1000, overlap=150）
-  │    └─ 每個 chunk → document_chunks INSERT
+  ├─ Per-page _chunk_text()  sliding window (chunk_size=1000, overlap=150)
+  │    └─ Each chunk → document_chunks INSERT
   │         metadata: { filename, page_number, chunk_size }
   │
-  └─ 回傳 DocumentIngestionResult
+  └─ Return DocumentIngestionResult
        { document_id, filename, page_count, chunk_count, source_path }
 
 Query → embed question → ChromaDB similarity search → top-k chunks → LLM answer
-（embedding pipeline 待 Step 4 實作）
+(embedding pipeline to be implemented in Step 4)
 ```
 
 ### Incident ETL + AI Analysis
@@ -89,22 +91,22 @@ Query → embed question → ChromaDB similarity search → top-k chunks → LLM
 ```
 POST /projects/{id}/upload/tickets
   │
-  ├─ 副檔名驗證（.csv / .xlsx / .json）
+  ├─ Extension validation (.csv / .xlsx / .json)
   │
-  ├─ 格式解析
+  ├─ Format parsing
   │    ├─ CSV  → stdlib csv.DictReader
-  │    ├─ JSON → stdlib json.loads（支援 list / wrapped object / single object）
-  │    └─ XLSX → openpyxl（lazy import）
+  │    ├─ JSON → stdlib json.loads (supports list / wrapped object / single object)
+  │    └─ XLSX → openpyxl (lazy import)
   │
-  ├─ 逐列處理
-  │    ├─ RawRecord INSERT（原始資料，無論是否通過驗證）
-  │    ├─ normalize_columns()  欄位同義詞對應 → 標準欄位名稱
-  │    ├─ CleanedTicket(Pydantic)  strip / empty→None / 必填驗證 / 預設值
-  │    │    ├─ 成功 → CleanedRecord INSERT
-  │    │    └─ 失敗 → 記入 errors[]，raw_records 仍保留
+  ├─ Per-row processing
+  │    ├─ RawRecord INSERT (raw data, regardless of validation outcome)
+  │    ├─ normalize_columns()  column synonym mapping → standard column names
+  │    ├─ CleanedTicket(Pydantic)  strip / empty→None / required validation / defaults
+  │    │    ├─ Success → CleanedRecord INSERT
+  │    │    └─ Failure → append to errors[], raw_records still retained
   │    └─ db.commit()
   │
-  └─ 回傳 TicketImportSummary
+  └─ Return TicketImportSummary
        { raw_count, cleaned_count, failed_count, errors }
 
 Incident batch → LLM classify + score → AI results → PostgreSQL (incident_analysis table)
