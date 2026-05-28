@@ -109,16 +109,76 @@ Semantic search over documents.
 
 ---
 
-## Incidents _(Step 3)_
+## Uploads
 
-### `POST /incidents/upload`
-Upload CSV/Excel/JSON incident records for ETL.
+### `POST /projects/{project_id}/upload/tickets`
+
+上傳 CSV、Excel 或 JSON 格式的 incident ticket 檔案，執行 ETL 並儲存至 PostgreSQL。
+
+**Path Parameter**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | 專案 ID |
+
+**Request**
+- Content-Type: `multipart/form-data`
+- Field: `file` — 上傳的檔案（`.csv`、`.xlsx`、`.json`）
+
+**支援欄位名稱對應（同義詞）**
+
+| 標準欄位 | 接受的欄位名稱 |
+|---|---|
+| ticket_id | ticket id, id, case_id, ticket |
+| occurred_at | date, created_at, timestamp, datetime |
+| system | service, system_name, service_name |
+| module | component, comp, subsystem |
+| issue_description | issue, description, problem, desc |
+| resolution | fix, solution, resolved_by, remedy |
+| status | state, ticket_status |
+| priority | severity, urgency, sev |
+
+**必填欄位**：`ticket_id`、`issue_description`
+
+**選填欄位預設值**：`system`、`module`、`status`、`priority` 缺值時填入 `"unknown"`
+
+**Response 200**
+```json
+{
+  "raw_count": 22,
+  "cleaned_count": 20,
+  "failed_count": 2,
+  "errors": [
+    {
+      "row": 5,
+      "raw_ticket_id": "TKT-005",
+      "error": "issue_description: issue_description 為必填欄位，且不可為空"
+    }
+  ]
+}
+```
+
+| 欄位 | 說明 |
+|---|---|
+| raw_count | 解析出的總列數（全數存入 raw_records） |
+| cleaned_count | 成功驗證並存入 cleaned_records 的列數 |
+| failed_count | 驗證失敗的列數 |
+| errors | 各筆失敗的詳細錯誤，含列號與原始 ticket_id |
+
+**Errors**
+- `400` — 不支援的檔案格式、檔案為空、解析失敗
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID
+
+---
+
+## Incidents _(待實作)_
 
 ### `GET /incidents/`
-List all normalized incidents.
+列出已匯入的 incident 記錄。
 
 ### `GET /incidents/{id}`
-Get a single incident.
+取得單筆 incident 記錄。
 
 ---
 

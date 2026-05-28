@@ -100,12 +100,56 @@ opsknowledge-agent-lite/
   docker-compose.yml
 ```
 
+## Upload Incident Tickets
+
+```bash
+# 1. 建立專案，取得 project_id
+PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
+  -H "Content-Type: application/json" \
+  -d '{"name":"IT Operations Demo"}' | jq -r '.id')
+
+# 2. 上傳 CSV（也支援 .xlsx、.json）
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
+  -F "file=@demo_data/tickets/sample_incidents.csv"
+
+# 預期回應
+# {
+#   "raw_count": 22,
+#   "cleaned_count": 22,
+#   "failed_count": 0,
+#   "errors": []
+# }
+```
+
+## Verify Records in PostgreSQL
+
+```sql
+-- 確認 raw_records 原始資料
+SELECT id, source_file, raw_json->>'ticket_id' AS ticket_id, created_at
+FROM raw_records
+WHERE project_id = '<your-project-id>'
+ORDER BY created_at
+LIMIT 5;
+
+-- 確認 cleaned_records 清洗結果
+SELECT ticket_id, occurred_at, system, module, status, priority
+FROM cleaned_records
+WHERE project_id = '<your-project-id>'
+ORDER BY occurred_at
+LIMIT 10;
+
+-- 統計各 priority 分佈
+SELECT priority, COUNT(*) FROM cleaned_records
+WHERE project_id = '<your-project-id>'
+GROUP BY priority;
+```
+
 ## Implementation Status
 
 - [x] Step 1: Project scaffold, health endpoint, Docker Compose
 - [x] Step 2-pre: PostgreSQL data model (10 tables, ORM models, Pydantic schemas, SQL migration)
 - [ ] Step 2: PDF ingestion → RAG pipeline
-- [ ] Step 3: Incident ETL (CSV/Excel/JSON → PostgreSQL)
+- [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
 - [ ] Step 4: AI analysis tools (classify, score, insights)
 - [ ] Step 5: Observability layer (AI run logging)
 - [ ] Step 6: Streamlit dashboard (complete)

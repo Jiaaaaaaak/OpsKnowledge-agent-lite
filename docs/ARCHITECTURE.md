@@ -66,10 +66,30 @@ Query → embed question → ChromaDB similarity search → top-k chunks → LLM
 ```
 
 ### Incident ETL + AI Analysis
+
 ```
-CSV/Excel/JSON upload → pandas normalize → validate schema → PostgreSQL (incidents table)
-Incident batch → LLM classify + score → AI results → PostgreSQL (ai_results table)
-Every LLM call → log tokens/latency → PostgreSQL (ai_run_log table)
+POST /projects/{id}/upload/tickets
+  │
+  ├─ 副檔名驗證（.csv / .xlsx / .json）
+  │
+  ├─ 格式解析
+  │    ├─ CSV  → stdlib csv.DictReader
+  │    ├─ JSON → stdlib json.loads（支援 list / wrapped object / single object）
+  │    └─ XLSX → openpyxl（lazy import）
+  │
+  ├─ 逐列處理
+  │    ├─ RawRecord INSERT（原始資料，無論是否通過驗證）
+  │    ├─ normalize_columns()  欄位同義詞對應 → 標準欄位名稱
+  │    ├─ CleanedTicket(Pydantic)  strip / empty→None / 必填驗證 / 預設值
+  │    │    ├─ 成功 → CleanedRecord INSERT
+  │    │    └─ 失敗 → 記入 errors[]，raw_records 仍保留
+  │    └─ db.commit()
+  │
+  └─ 回傳 TicketImportSummary
+       { raw_count, cleaned_count, failed_count, errors }
+
+Incident batch → LLM classify + score → AI results → PostgreSQL (incident_analysis table)
+Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 ```
 
 ## Port Map
