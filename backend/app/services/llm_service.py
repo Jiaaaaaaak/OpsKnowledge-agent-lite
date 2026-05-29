@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
@@ -81,6 +82,40 @@ class OpenAICompatibleLLMProvider(LLMProvider):
                 "completion_tokens": response.usage.completion_tokens,
             }
         return answer, usage
+
+
+class MockLLMProvider(LLMProvider):
+    """
+    完全本地、確定性的 LLM provider，不需任何 API 金鑰。
+
+    - 若 system prompt 中沒有 context（只有 no context retrieved），
+      回傳標準「文件不含足夠資訊」回應。
+    - 若有 context，從第一個 chunk 擷取前 200 字元作為 mock 答案（帶 [mock] 前綴）。
+    適合 CI / 本地開發驗證端到端流程。
+    """
+
+    def complete(self, system_prompt: str, user_message: str) -> tuple[str, dict]:
+        if "(no context retrieved)" in system_prompt:
+            answer = "The document does not contain enough information to answer this question."
+        else:
+            match = re.search(r"\[\d+\] .+?:\n(.+?)(?:\n\n---|$)", system_prompt, re.DOTALL)
+            if match:
+                excerpt = match.group(1).strip()[:200]
+                answer = f"[mock] {excerpt}"
+            else:
+                answer = "[mock] Based on the provided context."
+        return answer, {"prompt_tokens": 0, "completion_tokens": 0, "mock": True}
+
+
+def get_llm_provider() -> LLMProvider:
+    """
+    從 LLM_PROVIDER 環境變數選擇 LLM provider。
+    "mock"  → MockLLMProvider（不需 API key，適合 CI / 本地開發）
+    "openai"→ OpenAICompatibleLLMProvider（需 OPENAI_API_KEY）
+    """
+    if settings.llm_provider == "mock":
+        return MockLLMProvider()
+    return OpenAICompatibleLLMProvider()
 
 
 def build_rag_prompt(chunks: list[dict]) -> str:

@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models.agent import AgentRun, ToolCall
 from app.models.project import Project
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
-from app.services.llm_service import OpenAICompatibleLLMProvider, build_rag_prompt, format_citations
+from app.services.llm_service import get_llm_provider, build_rag_prompt, format_citations
 from app.services.vector_store import get_vector_store
 
 router = APIRouter(prefix="/projects", tags=["Chat"])
@@ -44,8 +44,8 @@ def chat(
     # Step 2: 組裝 RAG prompt
     system_prompt = build_rag_prompt(hits)
 
-    # Step 3: 呼叫 LLM
-    llm = OpenAICompatibleLLMProvider()
+    # Step 3: 呼叫 LLM（provider 由 LLM_PROVIDER env var 決定）
+    llm = get_llm_provider()
     llm_start = time.monotonic()
     llm_status = "error"
     llm_error: str | None = None
@@ -69,7 +69,7 @@ def chat(
         id=agent_run_id,
         project_id=project_id,
         task_type="rag_chat",
-        model_name=settings.llm_model,
+        model_name="mock" if settings.llm_provider == "mock" else settings.llm_model,
         input_json={"question": body.question, "top_k": body.top_k},
         output_json={"answer": answer, "citation_count": len(citations), "llm_ms": llm_ms, **usage},
         status=llm_status,

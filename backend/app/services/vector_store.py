@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from app.core.config import settings
-from app.services.embedding_service import EmbeddingProvider, OpenAIEmbeddingProvider
+from app.services.embedding_service import EmbeddingProvider, get_embedding_provider
 
 
 @dataclass
@@ -99,5 +99,9 @@ class VectorStoreService:
 
 @lru_cache(maxsize=1)
 def get_vector_store() -> VectorStoreService:
-    """模組級單例：第一次呼叫才建立 OpenAI provider 與 ChromaDB 連線（並在缺金鑰時 fail loud）."""
-    return VectorStoreService(OpenAIEmbeddingProvider())
+    """
+    模組級單例。依 EMBEDDING_PROVIDER 環境變數選擇 provider：
+    - "mock"   → MockEmbeddingProvider（無須 API key）
+    - "openai" → OpenAIEmbeddingProvider（需 OPENAI_API_KEY）
+    """
+    return VectorStoreService(get_embedding_provider())

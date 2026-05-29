@@ -38,6 +38,73 @@ curl http://localhost:8000/health
 # Open http://localhost:8501 in browser
 ```
 
+## Mock Mode (No API Key Required)
+
+If you have not yet set up an OpenAI or Ollama account, you can run the full backend
+pipeline locally using deterministic mock providers:
+
+| Provider | env var | Behaviour |
+|---|---|---|
+| `MockEmbeddingProvider` | `EMBEDDING_PROVIDER=mock` | Returns 384-dim unit vectors (MD5-seeded, no network call) |
+| `MockLLMProvider` | `LLM_PROVIDER=mock` | Returns a `[mock]` prefixed answer extracted from retrieved context |
+
+```bash
+# .env — copy from .env.example and set the two provider lines:
+EMBEDDING_PROVIDER=mock
+LLM_PROVIDER=mock
+# OPENAI_API_KEY can remain as the placeholder — it is ignored in mock mode
+```
+
+### What works in mock mode
+- All unit tests — 155 tests, zero external calls
+- `POST /projects/{id}/upload/documents` — PDF is parsed, chunked, stored in PostgreSQL;
+  embeddings are generated locally and stored in ChromaDB (ChromaDB must be running)
+- `GET /projects/{id}/search` — vector search returns results using mock vectors
+- `POST /projects/{id}/chat` — returns a deterministic mock answer with citations;
+  `agent_runs` and `tool_calls` rows are written to PostgreSQL
+
+### What requires real API keys
+- Production-quality answers (real LLM reasoning)
+- Semantic relevance of search results (real embedding similarity)
+
+### Run all tests (no external services required)
+```bash
+cd backend
+PYTHONPATH=. pytest tests/ -v
+```
+
+### Quick local smoke test (requires PostgreSQL + ChromaDB running)
+```bash
+cp .env.example .env
+# Edit .env: set EMBEDDING_PROVIDER=mock  LLM_PROVIDER=mock
+#            set POSTGRES_* and CHROMA_* to your local services
+
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=. python scripts/create_tables.py
+
+# Start the server
+PYTHONPATH=. uvicorn app.main:app --reload
+
+# In another terminal:
+PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Mock Test"}' | jq -r '.id')
+
+# Verify health (both db and chroma should show "connected")
+curl http://localhost:8000/health
+
+# Upload a PDF and ask a question (mock providers, no API key)
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
+  -F "file=@demo_data/documents/your_manual.pdf"
+
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What does this document cover?", "top_k": 3}'
+# Response: { "answer": "[mock] ...", "citations": [...] }
+```
+
 ## Local Development (without Docker)
 
 ```bash

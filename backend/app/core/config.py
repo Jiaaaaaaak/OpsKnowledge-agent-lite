@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     chroma_port: int = 8001
     chroma_collection_name: str = "opsknowledge_docs"
 
+    # Provider selection
+    # "openai" — calls OpenAI-compatible API (requires a real OPENAI_API_KEY)
+    # "mock"   — deterministic local provider; no API key needed; safe for CI / local dev
+    embedding_provider: str = "openai"
+    llm_provider: str = "openai"
+    mock_embedding_dim: int = 384  # fixed vector dimension used by MockEmbeddingProvider
+
     # OpenAI-compatible LLM
     openai_api_key: str = "sk-placeholder"
     openai_base_url: str = "https://api.openai.com/v1"

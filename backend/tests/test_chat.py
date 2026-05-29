@@ -208,7 +208,7 @@ def test_chat_returns_answer_and_citations(client: TestClient) -> None:
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
     with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.OpenAICompatibleLLMProvider") as mock_llm_cls:
+         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
@@ -245,7 +245,7 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
 
     with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.OpenAICompatibleLLMProvider") as mock_llm_cls:
+         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
@@ -295,7 +295,7 @@ def test_chat_no_hits_returns_answer_without_citations(client: TestClient) -> No
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
     with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.OpenAICompatibleLLMProvider") as mock_llm_cls:
+         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = []
         mock_llm_cls.return_value.complete.return_value = (
             "The document does not contain enough information to answer this question.",
@@ -318,7 +318,7 @@ def test_chat_llm_error_returns_500(client: TestClient) -> None:
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
     with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.OpenAICompatibleLLMProvider") as mock_llm_cls:
+         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.side_effect = RuntimeError("API quota exceeded")
 
