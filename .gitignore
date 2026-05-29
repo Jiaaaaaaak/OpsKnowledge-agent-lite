@@ -22,6 +22,9 @@ htmlcov/
 postgres_data/
 chroma_data/
 
+# Runtime uploads
+backend/data/uploads/
+
 # IDE
 .idea/
 .vscode/

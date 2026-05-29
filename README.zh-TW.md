@@ -28,7 +28,8 @@
 ```bash
 # 1. 取得專案並設定環境變數
 cp .env.example .env
-# 編輯 .env — 設定 OPENAI_API_KEY
+# .env 預設為 mock 模式（EMBEDDING_PROVIDER=mock、LLM_PROVIDER=mock），
+# 不需要任何 API key。要使用真實模型請參考下方「Provider 模式」。
 
 # 2. 啟動所有服務
 docker compose up --build
@@ -37,6 +38,22 @@ docker compose up --build
 curl http://localhost:8000/health
 # 於瀏覽器開啟 http://localhost:8501
 ```
+
+### Provider 模式
+
+| 模式 | 環境變數 | API key | 說明 |
+|---|---|---|---|
+| **mock**（預設） | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 確定性本地 provider；可完全離線跑完整流程 |
+| **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | 呼叫 OpenAI 相容 API 取得真實嵌入與回答 |
+
+### 主機名稱：Docker vs 本機
+
+應用程式透過 `POSTGRES_HOST` / `CHROMA_HOST` 連線到 PostgreSQL 與 ChromaDB
+（沒有 `DATABASE_URL`，詳見 `backend/app/core/config.py`）。
+
+- **Docker Compose** 會將其覆寫為服務名稱 `postgres` 與 `chromadb`
+  （定義於 `docker-compose.yml`），因此容器網路不需要修改 `.env`。
+- **本機（不使用 Docker）** 使用 `.env.example` 預設的 `localhost`。
 
 ## 本機開發（不使用 Docker）
 
@@ -127,8 +144,9 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > `demo_data/documents/` 供 Demo 使用。此目錄下的檔案不會納入 git 追蹤。
 > 上傳的檔案會儲存於 `backend/data/uploads/`。
 
-> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 ChromaDB。此功能需要 `.env`
-> 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以清楚的錯誤訊息失敗（不留下半套資料）。
+> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 ChromaDB。mock 模式（預設）不需要
+> API key。openai 模式則需要 `.env` 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以
+> 清楚的錯誤訊息失敗（不留下半套資料）。
 
 ## Chat（RAG 問答）
 

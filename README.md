@@ -28,7 +28,8 @@ An enterprise-style AI + Data Engineering POC for IT operations and system integ
 ```bash
 # 1. Clone and configure
 cp .env.example .env
-# Edit .env — set OPENAI_API_KEY
+# .env defaults to mock mode (EMBEDDING_PROVIDER=mock, LLM_PROVIDER=mock) —
+# no API key needed. To use real models, see "Provider modes" below.
 
 # 2. Start all services
 docker compose up --build
@@ -37,6 +38,22 @@ docker compose up --build
 curl http://localhost:8000/health
 # Open http://localhost:8501 in browser
 ```
+
+### Provider modes
+
+| Mode | env vars | API key | Notes |
+|---|---|---|---|
+| **mock** (default) | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Deterministic local providers; runs the full pipeline offline |
+| **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Calls the OpenAI-compatible API for real embeddings and answers |
+
+### Hostnames: Docker vs local
+
+The app connects to PostgreSQL and ChromaDB via `POSTGRES_HOST` / `CHROMA_HOST`
+(there is no `DATABASE_URL` — see `backend/app/core/config.py`).
+
+- **Docker Compose** overrides these to the service names `postgres` and `chromadb`
+  (set in `docker-compose.yml`), so you do not edit `.env` for container networking.
+- **Local (no Docker)** uses the `.env.example` defaults of `localhost`.
 
 ## Mock Mode (No API Key Required)
 
@@ -49,10 +66,10 @@ pipeline locally using deterministic mock providers:
 | `MockLLMProvider` | `LLM_PROVIDER=mock` | Returns a `[mock]` prefixed answer extracted from retrieved context |
 
 ```bash
-# .env — copy from .env.example and set the two provider lines:
+# .env — these are the defaults from .env.example, no edit needed:
 EMBEDDING_PROVIDER=mock
 LLM_PROVIDER=mock
-# OPENAI_API_KEY can remain as the placeholder — it is ignored in mock mode
+# OPENAI_API_KEY is left empty — it is ignored in mock mode
 ```
 
 ### What works in mock mode
@@ -192,9 +209,10 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > in `demo_data/documents/` for demo purposes. Files in this directory are excluded
 > from git tracking. Uploaded files are stored under `backend/data/uploads/`.
 
-> **Embedding:** On upload, each chunk is embedded and indexed in ChromaDB. This
-> requires a valid `OPENAI_API_KEY` in `.env`; without it the upload fails with a
-> clear error (no half-written state).
+> **Embedding:** On upload, each chunk is embedded and indexed in ChromaDB. In mock
+> mode (the default) no API key is needed. In openai mode this requires a valid
+> `OPENAI_API_KEY` in `.env`; without it the upload fails with a clear error (no
+> half-written state).
 
 ## Chat (RAG Q&A)
 
