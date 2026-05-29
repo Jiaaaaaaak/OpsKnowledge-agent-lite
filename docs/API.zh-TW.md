@@ -20,9 +20,14 @@ Base URL：`http://localhost:8000`
   "status": "ok",
   "version": "0.1.0",
   "db": "connected",
-  "chroma": "configured"
+  "chroma": "connected"
 }
 ```
+
+| 欄位 | 可能值 | 說明 |
+|---|---|---|
+| db | `connected` / `unavailable` | PostgreSQL 連線狀態 |
+| chroma | `connected` / `unavailable` | ChromaDB 連線狀態（`/heartbeat` 探測） |
 
 ---
 

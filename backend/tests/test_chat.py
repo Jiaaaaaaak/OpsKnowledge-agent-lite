@@ -235,6 +235,44 @@ def test_chat_returns_answer_and_citations(client: TestClient) -> None:
     assert "docker inspect" in c["snippet"]
 
 
+def test_chat_writes_agent_run_and_tool_call() -> None:
+    from app.api.chat import chat
+    from app.models.agent import AgentRun, ToolCall
+    from app.schemas.chat import ChatRequest
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+
+    with patch("app.api.chat.get_vector_store") as mock_vs, \
+         patch("app.api.chat.OpenAICompatibleLLMProvider") as mock_llm_cls:
+        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_llm_cls.return_value.complete.return_value = (
+            "Run docker inspect to check volume mounts.",
+            {"prompt_tokens": 120, "completion_tokens": 20},
+        )
+
+        response = chat(
+            project_id,
+            ChatRequest(question="What should I check?", top_k=5),
+            db,
+        )
+
+    assert response.answer == "Run docker inspect to check volume mounts."
+    added = [call.args[0] for call in db.add.call_args_list]
+    agent_run = next(obj for obj in added if isinstance(obj, AgentRun))
+    tool_call = next(obj for obj in added if isinstance(obj, ToolCall))
+
+    assert agent_run.project_id == project_id
+    assert agent_run.task_type == "rag_chat"
+    assert agent_run.status == "success"
+    assert agent_run.output_json["citation_count"] == 1
+    assert tool_call.agent_run_id == agent_run.id
+    assert tool_call.tool_name == "vector_search"
+    assert tool_call.output_json["chunk_ids"] == ["c1"]
+    db.commit.assert_called_once()
+
+
 def test_chat_project_not_found_returns_404(client: TestClient) -> None:
     app.dependency_overrides[get_db] = _db_override(project=None)
 

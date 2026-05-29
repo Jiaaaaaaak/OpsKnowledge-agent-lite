@@ -11,7 +11,6 @@ from uuid import UUID
 from pydantic import BaseModel, ValidationError, model_validator
 from sqlalchemy.orm import Session
 
-from app.models.project import Project
 from app.models.record import CleanedRecord, RawRecord
 
 

@@ -14,12 +14,23 @@ class HealthResponse(BaseModel):
     chroma: str
 
 
+def _check_chroma_connection() -> bool:
+    try:
+        import chromadb
+        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        client.heartbeat()
+        return True
+    except Exception:
+        return False
+
+
 @router.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check() -> HealthResponse:
     db_ok = check_db_connection()
+    chroma_ok = _check_chroma_connection()
     return HealthResponse(
         status="ok",
         version=settings.app_version,
         db="connected" if db_ok else "unavailable",
-        chroma="configured",  # placeholder until ChromaDB client is wired
+        chroma="connected" if chroma_ok else "unavailable",
     )

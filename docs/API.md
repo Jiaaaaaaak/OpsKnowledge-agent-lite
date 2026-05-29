@@ -20,9 +20,14 @@ Returns service status including DB and ChromaDB connectivity.
   "status": "ok",
   "version": "0.1.0",
   "db": "connected",
-  "chroma": "configured"
+  "chroma": "connected"
 }
 ```
+
+| Field | Values | Description |
+|---|---|---|
+| db | `connected` / `unavailable` | PostgreSQL reachability |
+| chroma | `connected` / `unavailable` | ChromaDB reachability (`/heartbeat` probe) |
 
 ---
 

@@ -42,7 +42,7 @@ curl http://localhost:8000/health
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Start PostgreSQL and ChromaDB separately, then:
@@ -66,11 +66,9 @@ PYTHONPATH=. python scripts/create_tables.py
 psql -h localhost -U opsuser -d opsknowledge -f migrations/001_initial_schema.sql
 ```
 
-**Option C — Docker Compose (automatic on first start):**
+**Option C — Docker Compose (automatic on backend start):**
 ```bash
 docker compose up --build
-# Then run the script inside the backend container:
-docker compose exec backend python scripts/create_tables.py
 ```
 
 **Verify tables were created:**
@@ -242,7 +240,8 @@ GROUP BY priority;
 - [x] Step 2: PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
 - [x] Step 2b: Embedding + ChromaDB vector storage & search (`GET /projects/{id}/search`)
 - [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
-- [ ] Step 4: AI analysis tools (classify, score, insights)
-- [ ] Step 5: Observability layer (AI run logging)
+- [x] Prompt 7: RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
+- [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows
+- [ ] Step 4: AI analysis tools (classify incidents, score severity, generate insights)
 - [ ] Step 6: Streamlit dashboard (complete)
-- [ ] Step 7: Tests + final documentation
+- [ ] Step 8+: Local model provider (Ollama), agent tools
