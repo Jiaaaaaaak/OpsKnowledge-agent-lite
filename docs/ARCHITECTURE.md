@@ -50,7 +50,9 @@ graph TD
 | Component | Responsibility |
 |---|---|
 | `api/` | Route definitions, request validation, response serialization |
-| `services/document_service.py` | PDF parsing, chunking, embedding, ChromaDB storage |
+| `services/document_service.py` | PDF parsing, chunking, then embedding + ChromaDB storage (via injected `VectorStoreService`) |
+| `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
+| `services/vector_store.py` | `VectorStoreService` wrapping ChromaDB: upsert chunk vectors, project-scoped similarity search |
 | `services/etl_service.py` | CSV/Excel/JSON ingestion, normalization, PostgreSQL insertion |
 | `services/ai_service.py` | Orchestrates LLM tool calls for classification, scoring, insights |
 | `services/log_service.py` | Records every AI run to `ai_run_log` table |
@@ -76,14 +78,21 @@ POST /projects/{id}/upload/documents
   ├─ documents INSERT (filename, document_type="pdf", source_path, metadata.page_count)
   │
   ├─ Per-page _chunk_text()  sliding window (chunk_size=1000, overlap=150)
-  │    └─ Each chunk → document_chunks INSERT
+  │    └─ Each chunk (explicit uuid) → document_chunks INSERT
   │         metadata: { filename, page_number, chunk_size }
+  │
+  ├─ VectorStoreService.add_chunks()  embed all chunks → ChromaDB upsert
+  │    ├─ id = document_chunks.id  (same UUID in PG and ChromaDB)
+  │    ├─ metadata: { project_id, document_id, chunk_id, filename, chunk_index }
+  │    └─ Runs BEFORE db.commit() — embedding failure aborts the upload (no half-written state)
   │
   └─ Return DocumentIngestionResult
        { document_id, filename, page_count, chunk_count, source_path }
 
-Query → embed question → ChromaDB similarity search → top-k chunks → LLM answer
-(embedding pipeline to be implemented in Step 4)
+GET /projects/{id}/search?query=...&top_k=5
+  └─ embed query → ChromaDB query (where project_id == {id}) → top-k chunks
+       each hit: { chunk_id, content, metadata, distance, score }
+       chunk_id maps 1:1 back to the document_chunks row in PostgreSQL
 ```
 
 ### Incident ETL + AI Analysis

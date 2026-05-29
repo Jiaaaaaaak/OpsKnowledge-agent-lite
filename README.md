@@ -1,109 +1,111 @@
 # OpsKnowledge Agent Lite
 
-一套面向 IT 維運與系統整合情境的企業級 AI + 資料工程概念驗證（POC）專案。
+English | [繁體中文](README.zh-TW.md)
 
-## 功能概覽
+An enterprise-style AI + Data Engineering POC for IT operations and system integration scenarios.
 
-| 能力 | 說明 |
+## What It Does
+
+| Capability | Description |
 |---|---|
-| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、透過 ChromaDB 檢索 |
-| 事件 ETL | 上傳 CSV／Excel／JSON 工單 → 正規化、清洗、寫入 PostgreSQL |
-| AI 分析 | 事件分類、嚴重度評分、產生洞察與行動項目 |
-| 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
-| 儀表板 | 以 Streamlit 提供上傳、問答、分析與代理日誌介面 |
+| Document RAG | Upload PDF manuals/SOPs → chunk, embed, retrieve via ChromaDB |
+| Incident ETL | Upload CSV/Excel/JSON tickets → normalize, clean, store in PostgreSQL |
+| AI Analysis | Classify incidents, score severity, generate insights and action items |
+| Observability | Every AI tool call logged to PostgreSQL for auditability |
+| Dashboard | Streamlit UI for uploads, Q&A, analysis, and agent logs |
 
-## 技術堆疊
+## Tech Stack
 
-- **後端**：Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2
-- **資料庫**：PostgreSQL 16
-- **向量資料庫**：ChromaDB
-- **AI**：相容 OpenAI 介面（可切換至 Ollama）
-- **前端**：Streamlit
-- **基礎設施**：Docker Compose
+- **Backend**: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2
+- **Database**: PostgreSQL 16
+- **Vector DB**: ChromaDB
+- **AI**: OpenAI-compatible (swappable to Ollama)
+- **Frontend**: Streamlit
+- **Infra**: Docker Compose
 
-## 快速開始
+## Quick Start
 
 ```bash
-# 1. 取得專案並設定環境變數
+# 1. Clone and configure
 cp .env.example .env
-# 編輯 .env — 設定 OPENAI_API_KEY
+# Edit .env — set OPENAI_API_KEY
 
-# 2. 啟動所有服務
+# 2. Start all services
 docker compose up --build
 
-# 3. 驗證
+# 3. Verify
 curl http://localhost:8000/health
-# 於瀏覽器開啟 http://localhost:8501
+# Open http://localhost:8501 in browser
 ```
 
-## 本機開發（不使用 Docker）
+## Local Development (without Docker)
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 另行啟動 PostgreSQL 與 ChromaDB 後，執行：
+# Start PostgreSQL and ChromaDB separately, then:
 PYTHONPATH=. uvicorn app.main:app --reload
 
-# 執行測試
+# Run tests
 PYTHONPATH=. pytest tests/ -v
 ```
 
-## 資料庫初始化
+## Database Initialisation
 
-**方式 A — Python 腳本（建議用於本機開發）：**
+**Option A — Python script (recommended for local dev):**
 ```bash
 cd backend
-cp ../.env.example ../.env   # 設定 POSTGRES_* 變數
+cp ../.env.example ../.env   # set POSTGRES_* vars
 PYTHONPATH=. python scripts/create_tables.py
 ```
 
-**方式 B — 原生 SQL（psql）：**
+**Option B — Raw SQL (psql):**
 ```bash
 psql -h localhost -U opsuser -d opsknowledge -f migrations/001_initial_schema.sql
 ```
 
-**方式 C — Docker Compose（首次啟動時自動建立）：**
+**Option C — Docker Compose (automatic on first start):**
 ```bash
 docker compose up --build
-# 接著在 backend 容器內執行腳本：
+# Then run the script inside the backend container:
 docker compose exec backend python scripts/create_tables.py
 ```
 
-**驗證資料表是否建立成功：**
+**Verify tables were created:**
 ```sql
--- 連線後執行：
+-- Connect and run:
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public'
 ORDER BY table_name;
 ```
 
-## 專案結構
+## Project Structure
 
 ```
 opsknowledge-agent-lite/
-  backend/           FastAPI 服務
+  backend/           FastAPI service
     app/
-      core/          設定、日誌
-      api/           路由處理器
-      models/        SQLAlchemy ORM 模型
-      schemas/       Pydantic 請求／回應結構
-      services/      商業邏輯
-      tools/         AI 工具定義（LLM function call）
-      db/            資料庫連線、遷移
-      utils/         共用輔助函式
+      core/          Config, logging
+      api/           Route handlers
+      models/        SQLAlchemy ORM models
+      schemas/       Pydantic request/response schemas
+      services/      Business logic
+      tools/         AI tool definitions (LLM function calls)
+      db/            DB session, migrations
+      utils/         Shared helpers
     tests/
   frontend/          Streamlit UI
-  docs/              架構、PRD、資料模型、API 文件
-  demo_data/         供 Demo 用的範例工單與 PDF
+  docs/              Architecture, PRD, data model, API docs
+  demo_data/         Sample tickets and PDFs for demos
   docker-compose.yml
 ```
 
-## 上傳 PDF 文件
+## Upload PDF Documents
 
 ```bash
-# 上傳 PDF 技術手冊或 SOP
+# Upload a PDF technical manual or SOP
 PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
   -H "Content-Type: application/json" \
   -d '{"name":"IT Operations Demo"}' | jq -r '.id')
@@ -111,7 +113,7 @@ PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
   -F "file=@demo_data/documents/your_manual.pdf"
 
-# 預期回應
+# Expected response
 # {
 #   "document_id": "...",
 #   "filename": "your_manual.pdf",
@@ -121,23 +123,56 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 # }
 ```
 
-> **備註：** 請將公眾領域的手冊（例如開源 SOP PDF、RFC 文件）放入
-> `demo_data/documents/` 供 Demo 使用。此目錄下的檔案不會納入 git 追蹤。
-> 上傳的檔案會儲存於 `backend/data/uploads/`。
+> **Note:** Place public domain manuals (e.g., open-source SOP PDFs, RFC documents)
+> in `demo_data/documents/` for demo purposes. Files in this directory are excluded
+> from git tracking. Uploaded files are stored under `backend/data/uploads/`.
 
-## 上傳事件工單
+> **Embedding:** On upload, each chunk is embedded and indexed in ChromaDB. This
+> requires a valid `OPENAI_API_KEY` in `.env`; without it the upload fails with a
+> clear error (no half-written state).
+
+## Search Documents
 
 ```bash
-# 1. 建立專案，取得 project_id
+# Semantic search over a project's embedded chunks
+curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20restart%20the%20service&top_k=5"
+
+# Expected response
+# {
+#   "project_id": "...",
+#   "query": "how to restart the service",
+#   "top_k": 5,
+#   "results": [
+#     {
+#       "chunk_id": "9b2c...",          # == document_chunks.id in PostgreSQL
+#       "content": "To restart the service, run ...",
+#       "metadata": { "project_id": "...", "document_id": "...",
+#                     "chunk_id": "9b2c...", "filename": "network_sop.pdf",
+#                     "chunk_index": 12 },
+#       "distance": 0.18,
+#       "score": 0.82
+#     }
+#   ]
+# }
+```
+
+> Each `chunk_id` returned by search equals the `document_chunks.id` UUID in
+> PostgreSQL, so you can join search hits back to the full row:
+> `SELECT * FROM document_chunks WHERE id = '<chunk_id>';`
+
+## Upload Incident Tickets
+
+```bash
+# 1. Create a project and capture the project_id
 PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
   -H "Content-Type: application/json" \
   -d '{"name":"IT Operations Demo"}' | jq -r '.id')
 
-# 2. 上傳 CSV（也支援 .xlsx、.json）
+# 2. Upload a CSV (.xlsx and .json are also supported)
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
   -F "file=@demo_data/tickets/sample_incidents.csv"
 
-# 預期回應
+# Expected response
 # {
 #   "raw_count": 22,
 #   "cleaned_count": 22,
@@ -146,36 +181,37 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
 # }
 ```
 
-## 在 PostgreSQL 中驗證資料
+## Verify Records in PostgreSQL
 
 ```sql
--- 確認 raw_records 原始資料
+-- Inspect raw_records (original data)
 SELECT id, source_file, raw_json->>'ticket_id' AS ticket_id, created_at
 FROM raw_records
 WHERE project_id = '<your-project-id>'
 ORDER BY created_at
 LIMIT 5;
 
--- 確認 cleaned_records 清洗結果
+-- Inspect cleaned_records (ETL output)
 SELECT ticket_id, occurred_at, system, module, status, priority
 FROM cleaned_records
 WHERE project_id = '<your-project-id>'
 ORDER BY occurred_at
 LIMIT 10;
 
--- 統計各 priority 分佈
+-- Count distribution by priority
 SELECT priority, COUNT(*) FROM cleaned_records
 WHERE project_id = '<your-project-id>'
 GROUP BY priority;
 ```
 
-## 實作進度
+## Implementation Status
 
-- [x] 步驟 1：專案骨架、health 端點、Docker Compose
-- [x] 步驟 2-pre：PostgreSQL 資料模型（10 張資料表、ORM 模型、Pydantic 結構、SQL 遷移）
-- [x] 步驟 2：PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`）
-- [x] 步驟 3：事件 ETL（`POST /projects/{id}/upload/tickets` — CSV／Excel／JSON → PostgreSQL）
-- [ ] 步驟 4：AI 分析工具（分類、評分、洞察）
-- [ ] 步驟 5：可觀測性層（AI 執行日誌）
-- [ ] 步驟 6：Streamlit 儀表板（完整版）
-- [ ] 步驟 7：測試與最終文件
+- [x] Step 1: Project scaffold, health endpoint, Docker Compose
+- [x] Step 2-pre: PostgreSQL data model (10 tables, ORM models, Pydantic schemas, SQL migration)
+- [x] Step 2: PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
+- [x] Step 2b: Embedding + ChromaDB vector storage & search (`GET /projects/{id}/search`)
+- [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
+- [ ] Step 4: AI analysis tools (classify, score, insights)
+- [ ] Step 5: Observability layer (AI run logging)
+- [ ] Step 6: Streamlit dashboard (complete)
+- [ ] Step 7: Tests + final documentation

@@ -115,7 +115,7 @@ Base URL：`http://localhost:8000`
 
 ### `POST /projects/{project_id}/upload/documents`
 
-上傳 PDF 技術手冊或 SOP 文件，自動抽取文字並分塊儲存至 PostgreSQL。
+上傳 PDF 技術手冊或 SOP 文件，自動抽取文字、分塊、儲存至 PostgreSQL，接著嵌入並索引至 ChromaDB 供檢索。
 
 **Path Parameter**
 
@@ -150,10 +150,83 @@ Base URL：`http://localhost:8000`
 - overlap：150 字元（相鄰分塊重疊，避免語意截斷）
 - 每個 chunk metadata 包含 `filename`、`page_number`、`chunk_size`
 
+**嵌入與向量儲存**
+- 分塊後，每個 chunk 會被嵌入（模型取自 `EMBEDDING_MODEL`）並 upsert 至 ChromaDB。
+- ChromaDB 的 id 等同 `document_chunks.id` UUID，因此搜尋結果可 1:1 對回 PostgreSQL 資料列。
+- ChromaDB metadata：`project_id`、`document_id`、`chunk_id`、`filename`、`chunk_index`。
+- 嵌入在 DB commit 前執行 — 若失敗則中止上傳，不留下半套資料。
+
 **錯誤**
 - `400` — 非 PDF 格式、檔案為空、PDF 無可抽取文字（掃描圖檔）
 - `404` — `{"detail": "Project not found"}`
 - `422` — project_id 不是合法 UUID
+- `500` — 無法嵌入（例如未設定 `OPENAI_API_KEY`）
+
+---
+
+### `GET /projects/{project_id}/search`
+
+對專案內已嵌入的文件分塊做語意相似度搜尋。
+
+**Path Parameter**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | 專案 ID |
+
+**Query Parameters**
+
+| 參數 | 型別 | 必填 | 預設 | 說明 |
+|---|---|---|---|---|
+| query | string | ✅ | — | 搜尋字串（長度至少 1） |
+| top_k | integer | — | 5 | 回傳的最相似 chunk 數（1–50） |
+
+**範例請求**
+```bash
+curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20restart%20the%20service&top_k=5"
+```
+
+**Response 200**
+```json
+{
+  "project_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "query": "how to restart the service",
+  "top_k": 5,
+  "results": [
+    {
+      "chunk_id": "9b2c...",
+      "content": "To restart the service, run ...",
+      "metadata": {
+        "project_id": "3fa85f64-...",
+        "document_id": "7c1d...",
+        "chunk_id": "9b2c...",
+        "filename": "network_sop.pdf",
+        "chunk_index": 12
+      },
+      "distance": 0.18,
+      "score": 0.82
+    }
+  ]
+}
+```
+
+| 欄位 | 說明 |
+|---|---|
+| chunk_id | chunk 的 UUID — 等同 PostgreSQL 的 `document_chunks.id` |
+| content | 與向量一同儲存的 chunk 文字 |
+| metadata | ChromaDB metadata（見上方嵌入說明） |
+| distance | 與 query 的 cosine 距離（越小越接近） |
+| score | `1 - distance` 的相似度分數，方便排序顯示 |
+
+**對回 PostgreSQL**：用 `chunk_id`（或 `metadata.document_id`）查回完整資料列：
+```sql
+SELECT * FROM document_chunks WHERE id = '<chunk_id>';
+```
+
+**錯誤**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID，或 `query` 缺漏／為空
+- `500` — 無法嵌入（例如未設定 `OPENAI_API_KEY`）
 
 ---
 

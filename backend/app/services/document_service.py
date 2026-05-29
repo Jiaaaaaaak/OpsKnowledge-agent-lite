@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
@@ -9,6 +10,9 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk
+
+if TYPE_CHECKING:
+    from app.services.vector_store import VectorStoreService
 
 UPLOAD_DIR = Path("data/uploads")
 
@@ -25,6 +29,10 @@ class DocumentIngestionResult(BaseModel):
 
 
 class DocumentIngestionService:
+
+    def __init__(self, vector_store: "VectorStoreService | None" = None) -> None:
+        # 注入 vector store 才會做 embedding；未注入時（如單元測試）僅寫入 PostgreSQL。
+        self._vector_store = vector_store
 
     @staticmethod
     def _chunk_text(
@@ -91,10 +99,15 @@ class DocumentIngestionService:
         )
         db.add(doc)
 
+        from app.services.vector_store import ChunkPayload
+
         chunk_index = 0
+        payloads: list[ChunkPayload] = []
         for page_num, page_text in non_empty_pages:
             for chunk_content in self._chunk_text(page_text):
+                chunk_id = uuid4()  # 先產生 id，使 ChromaDB 的 id 與此筆 document_chunks.id 一致
                 db.add(DocumentChunk(
+                    id=chunk_id,
                     document_id=doc.id,
                     chunk_index=chunk_index,
                     content=chunk_content,
@@ -104,7 +117,19 @@ class DocumentIngestionService:
                         "chunk_size": len(chunk_content),
                     },
                 ))
+                payloads.append(ChunkPayload(
+                    chunk_id=str(chunk_id),
+                    document_id=str(doc.id),
+                    project_id=str(project_id),
+                    filename=filename,
+                    chunk_index=chunk_index,
+                    content=chunk_content,
+                ))
                 chunk_index += 1
+
+        # 先 embed 並寫入 ChromaDB，成功後才 commit；embedding 失敗則不留下半套資料。
+        if self._vector_store is not None:
+            self._vector_store.add_chunks(payloads)
 
         db.commit()
 

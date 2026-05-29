@@ -50,7 +50,9 @@ graph TD
 | 元件 | 職責 |
 |---|---|
 | `api/` | 路由定義、請求驗證、回應序列化 |
-| `services/document_service.py` | PDF 解析、分塊、嵌入、寫入 ChromaDB |
+| `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 ChromaDB（透過注入的 `VectorStoreService`） |
+| `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
+| `services/vector_store.py` | 封裝 ChromaDB 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
 | `services/etl_service.py` | CSV/Excel/JSON 匯入、正規化、寫入 PostgreSQL |
 | `services/ai_service.py` | 調度 LLM 工具呼叫，執行分類、評分、洞察 |
 | `services/log_service.py` | 將每次 AI 執行記錄至 `ai_run_log` 資料表 |
@@ -76,14 +78,21 @@ POST /projects/{id}/upload/documents
   ├─ documents INSERT（filename, document_type="pdf", source_path, metadata.page_count）
   │
   ├─ 逐頁 _chunk_text()  滑動視窗（chunk_size=1000, overlap=150）
-  │    └─ 每個 chunk → document_chunks INSERT
+  │    └─ 每個 chunk（明確指定 uuid）→ document_chunks INSERT
   │         metadata: { filename, page_number, chunk_size }
+  │
+  ├─ VectorStoreService.add_chunks()  嵌入所有 chunk → ChromaDB upsert
+  │    ├─ id = document_chunks.id（PG 與 ChromaDB 使用相同 UUID）
+  │    ├─ metadata: { project_id, document_id, chunk_id, filename, chunk_index }
+  │    └─ 在 db.commit() 之前執行 — embedding 失敗即中止上傳（不留下半套資料）
   │
   └─ 回傳 DocumentIngestionResult
        { document_id, filename, page_count, chunk_count, source_path }
 
-Query → embed question → ChromaDB similarity search → top-k chunks → LLM answer
-（embedding pipeline 待 Step 4 實作）
+GET /projects/{id}/search?query=...&top_k=5
+  └─ 嵌入 query → ChromaDB query（where project_id == {id}）→ top-k chunks
+       每筆 hit：{ chunk_id, content, metadata, distance, score }
+       chunk_id 可 1:1 對回 PostgreSQL 的 document_chunks 列
 ```
 
 ### 事件 ETL + AI 分析

@@ -115,7 +115,7 @@ Semantic search over documents.
 
 ### `POST /projects/{project_id}/upload/documents`
 
-Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, and stored in PostgreSQL.
+Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, stored in PostgreSQL, then embedded and indexed in ChromaDB for retrieval.
 
 **Path Parameter**
 
@@ -150,10 +150,83 @@ Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, 
 - overlap: 150 characters (adjacent chunks overlap to avoid breaking semantics)
 - Each chunk's metadata contains `filename`, `page_number`, `chunk_size`
 
+**Embedding & vector storage**
+- After chunking, each chunk is embedded (model from `EMBEDDING_MODEL`) and upserted into ChromaDB.
+- The ChromaDB id equals the `document_chunks.id` UUID, so a search hit maps 1:1 back to its PostgreSQL row.
+- ChromaDB metadata: `project_id`, `document_id`, `chunk_id`, `filename`, `chunk_index`.
+- Embedding runs before the DB commit — if it fails, the upload is aborted with no half-written state.
+
 **Errors**
 - `400` — not a PDF, empty file, or PDF with no extractable text (scanned image)
 - `404` — `{"detail": "Project not found"}`
 - `422` — project_id is not a valid UUID
+- `500` — embedding unavailable (e.g. `OPENAI_API_KEY` not configured)
+
+---
+
+### `GET /projects/{project_id}/search`
+
+Semantic similarity search over a project's embedded document chunks.
+
+**Path Parameter**
+
+| Parameter | Type | Description |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Query Parameters**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| query | string | ✅ | — | Search text (min length 1) |
+| top_k | integer | — | 5 | Number of chunks to return (1–50) |
+
+**Example request**
+```bash
+curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20restart%20the%20service&top_k=5"
+```
+
+**Response 200**
+```json
+{
+  "project_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "query": "how to restart the service",
+  "top_k": 5,
+  "results": [
+    {
+      "chunk_id": "9b2c...",
+      "content": "To restart the service, run ...",
+      "metadata": {
+        "project_id": "3fa85f64-...",
+        "document_id": "7c1d...",
+        "chunk_id": "9b2c...",
+        "filename": "network_sop.pdf",
+        "chunk_index": 12
+      },
+      "distance": 0.18,
+      "score": 0.82
+    }
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| chunk_id | UUID of the chunk — equals `document_chunks.id` in PostgreSQL |
+| content | The chunk text stored alongside the vector |
+| metadata | ChromaDB metadata (see embedding section above) |
+| distance | Cosine distance from the query (lower = closer) |
+| score | `1 - distance` convenience similarity score |
+
+**Mapping back to PostgreSQL**: use `chunk_id` (or `metadata.document_id`) to look up the full row:
+```sql
+SELECT * FROM document_chunks WHERE id = '<chunk_id>';
+```
+
+**Errors**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id is not a valid UUID, or `query` is missing/empty
+- `500` — embedding unavailable (e.g. `OPENAI_API_KEY` not configured)
 
 ---
 

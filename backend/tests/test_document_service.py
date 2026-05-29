@@ -225,3 +225,59 @@ class TestIngest:
 
         indices = [c.chunk_index for c in added_chunks]
         assert indices == list(range(len(indices)))
+
+
+# ─────────────────────────────────────────────────────────────
+# embedding 整合（注入 vector store）
+# ─────────────────────────────────────────────────────────────
+
+class TestIngestWithVectorStore:
+
+    def _make_mock_page(self, text: str) -> MagicMock:
+        page = MagicMock()
+        page.extract_text.return_value = text
+        return page
+
+    @patch("app.services.document_service.PdfReader")
+    def test_no_vector_store_skips_embedding(self, mock_reader_cls):
+        # 未注入 vector store（單元測試 / 離線情境）時不得做 embedding
+        mock_reader_cls.return_value.pages = [self._make_mock_page("A " * 600)]
+        mock_db = MagicMock()
+        with patch.object(DocumentIngestionService, "_save_file", return_value=Path("x")):
+            svc = DocumentIngestionService()  # 無 vector store
+            result = svc.ingest(mock_db, uuid4(), "doc.pdf", b"fake")
+        assert result.chunk_count > 0
+        mock_db.commit.assert_called_once()
+
+    @patch("app.services.document_service.PdfReader")
+    def test_embeds_before_commit_and_chunk_ids_match(self, mock_reader_cls):
+        mock_reader_cls.return_value.pages = [self._make_mock_page("A " * 600)]  # 1200 chars → 2 chunks
+
+        added_chunks: list = []
+
+        def capture_add(obj):
+            from app.models.document import DocumentChunk
+            if isinstance(obj, DocumentChunk):
+                added_chunks.append(obj)
+
+        call_order: list[str] = []
+        mock_db = MagicMock()
+        mock_db.add.side_effect = capture_add
+        mock_db.commit.side_effect = lambda: call_order.append("commit")
+
+        vector_store = MagicMock()
+        vector_store.add_chunks.side_effect = lambda payloads: call_order.append("embed")
+
+        with patch.object(DocumentIngestionService, "_save_file", return_value=Path("x")):
+            svc = DocumentIngestionService(vector_store=vector_store)
+            project_id = uuid4()
+            svc.ingest(mock_db, project_id, "doc.pdf", b"fake")
+
+        vector_store.add_chunks.assert_called_once()
+        payloads = vector_store.add_chunks.call_args.args[0]
+
+        # ChromaDB 的 chunk_id 必須等同 PostgreSQL document_chunks.id（之後才能對回）
+        assert {str(c.id) for c in added_chunks} == {p.chunk_id for p in payloads}
+        # metadata 必帶 project_id，且 embedding 須在 commit 之前完成
+        assert all(p.project_id == str(project_id) for p in payloads)
+        assert call_order == ["embed", "commit"]
