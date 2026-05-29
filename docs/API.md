@@ -293,6 +293,82 @@ Upload an incident ticket file in CSV, Excel, or JSON format. Runs ETL and store
 
 ---
 
+## Chat (RAG Q&A)
+
+### `POST /projects/{project_id}/chat`
+
+Ask a question over a project's embedded documents. The endpoint retrieves the most
+relevant chunks from ChromaDB, builds a grounded prompt, and calls the configured LLM.
+Every request is logged to the `agent_runs` and `tool_calls` tables for auditability.
+
+**Path Parameter**
+
+| Parameter | Type | Description |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Request Body**
+```json
+{
+  "question": "Docker volume data disappeared after container restart. What should I check?",
+  "top_k": 5
+}
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| question | string | ✅ | — | The natural-language question (min length 1) |
+| top_k | integer | — | 5 | Number of chunks to retrieve from ChromaDB (1–50) |
+
+**Example request**
+```bash
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Docker volume data disappeared after container restart. What should I check?", "top_k": 5}'
+```
+
+**Response 200**
+```json
+{
+  "answer": "Docker volumes can lose data if not configured with a named volume or bind mount. Check the following:\n- Run `docker inspect <container>` and look at the `Mounts` field.\n- Confirm that the volume type is `volume` or `bind`, not `tmpfs`.\n- Verify the volume is declared in `docker-compose.yml` under the `volumes:` key.",
+  "citations": [
+    {
+      "document_id": "7c1d...",
+      "chunk_id": "9b2c...",
+      "filename": "docker_operations.pdf",
+      "chunk_index": 3,
+      "snippet": "Docker volumes persist data outside container lifecycle. Use named volumes..."
+    }
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| answer | LLM-generated answer grounded strictly in the retrieved context |
+| citations[].document_id | UUID of the source document in PostgreSQL |
+| citations[].chunk_id | UUID of the source chunk — equals `document_chunks.id` in PostgreSQL |
+| citations[].filename | Original PDF filename |
+| citations[].chunk_index | Zero-based chunk position within the document |
+| citations[].snippet | First 200 characters of the chunk (truncated with `...` if longer) |
+
+**Hallucination reduction**
+The system prompt instructs the model to:
+1. Answer _only_ from the provided context.
+2. If the context is insufficient, respond verbatim: _"The document does not contain enough information to answer this question."_
+3. Never invent commands, file paths, or procedures not present in the context.
+
+**Observability** — every request writes:
+- One `agent_runs` row (`task_type="rag_chat"`, `model_name`, `latency_ms`, `status`, `input_json`, `output_json`)
+- One `tool_calls` row for the retrieval step (`tool_name="vector_search"`, `latency_ms`, `hit_count`)
+
+**Errors**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id is not a valid UUID, `question` is missing/empty, or `top_k` is out of range
+- `500` — embedding or LLM provider unavailable (e.g. `OPENAI_API_KEY` not configured)
+
+---
+
 ## Incidents _(to be implemented)_
 
 ### `GET /incidents/`

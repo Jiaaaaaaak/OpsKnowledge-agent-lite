@@ -130,6 +130,36 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 ChromaDB。此功能需要 `.env`
 > 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以清楚的錯誤訊息失敗（不留下半套資料）。
 
+## Chat（RAG 問答）
+
+```bash
+# 對已上傳的文件提問
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Docker volume data disappeared after container restart. What should I check?",
+    "top_k": 5
+  }'
+
+# 預期回應
+# {
+#   "answer": "請確認以下項目：\n- 執行 `docker inspect <container>` 並查看 Mounts 欄位。\n- 確認 volume 類型不是 `tmpfs`。\n- 確認 docker-compose.yml 的 volumes: 已正確宣告。",
+#   "citations": [
+#     {
+#       "document_id": "7c1d...",
+#       "chunk_id": "9b2c...",
+#       "filename": "docker_operations.pdf",
+#       "chunk_index": 3,
+#       "snippet": "Docker volumes persist data outside container lifecycle..."
+#     }
+#   ]
+# }
+```
+
+> **幻覺控制：** 模型被指示只根據已取回的 context 回答。若 context 不足，
+> 會以固定措辭回應而非捏造答案。每次請求皆寫入一筆 `agent_runs` 與一筆
+> `tool_calls`（retrieval 步驟）至 PostgreSQL，確保可稽核性。
+
 ## 搜尋文件
 
 ```bash

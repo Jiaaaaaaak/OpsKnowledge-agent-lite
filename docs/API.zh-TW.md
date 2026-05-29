@@ -293,6 +293,81 @@ SELECT * FROM document_chunks WHERE id = '<chunk_id>';
 
 ---
 
+## Chat（RAG 問答）
+
+### `POST /projects/{project_id}/chat`
+
+對專案內已嵌入的文件提問。端點從 ChromaDB 取回最相關的 chunk，組裝有根據的 prompt，並呼叫設定的 LLM。
+每次請求皆記錄至 `agent_runs` 與 `tool_calls` 資料表，確保可稽核性。
+
+**Path Parameter**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | 專案 ID |
+
+**Request Body**
+```json
+{
+  "question": "Docker volume data disappeared after container restart. What should I check?",
+  "top_k": 5
+}
+```
+
+| 欄位 | 型別 | 必填 | 預設值 | 說明 |
+|---|---|---|---|---|
+| question | string | ✅ | — | 自然語言問題（最少 1 個字元） |
+| top_k | integer | — | 5 | 從 ChromaDB 取回的 chunk 數量（1–50） |
+
+**範例請求**
+```bash
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Docker volume data disappeared after container restart. What should I check?", "top_k": 5}'
+```
+
+**Response 200**
+```json
+{
+  "answer": "Docker volumes 可能因未設定具名 volume 或 bind mount 而遺失資料。請確認：\n- 執行 `docker inspect <container>` 並查看 `Mounts` 欄位。\n- 確認 volume 類型不是 `tmpfs`。\n- 確認 `docker-compose.yml` 的 `volumes:` 已正確宣告。",
+  "citations": [
+    {
+      "document_id": "7c1d...",
+      "chunk_id": "9b2c...",
+      "filename": "docker_operations.pdf",
+      "chunk_index": 3,
+      "snippet": "Docker volumes persist data outside container lifecycle..."
+    }
+  ]
+}
+```
+
+| 欄位 | 說明 |
+|---|---|
+| answer | 嚴格根據已取回 context 生成的 LLM 答案 |
+| citations[].document_id | 來源文件在 PostgreSQL 的 UUID |
+| citations[].chunk_id | 來源 chunk 的 UUID — 等同 PostgreSQL `document_chunks.id` |
+| citations[].filename | 原始 PDF 檔名 |
+| citations[].chunk_index | 文件內 chunk 的零起始索引 |
+| citations[].snippet | chunk 前 200 個字元（超過則截斷並加 `...`） |
+
+**幻覺抑制**  
+System prompt 指示模型：
+1. 只根據提供的 context 回答。
+2. 若 context 不足，固定回應：「The document does not contain enough information to answer this question.」
+3. 絕不捏造 context 中未出現的指令、路徑或操作步驟。
+
+**可觀測性** — 每次請求寫入：
+- 一筆 `agent_runs`（`task_type="rag_chat"`、`model_name`、`latency_ms`、`status`、`input_json`、`output_json`）
+- 一筆 `tool_calls`（`tool_name="vector_search"`、`latency_ms`、`hit_count`）
+
+**錯誤**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID、`question` 缺漏／為空、或 `top_k` 超出範圍
+- `500` — 嵌入或 LLM provider 無法使用（例如未設定 `OPENAI_API_KEY`）
+
+---
+
 ## Incidents _(待實作)_
 
 ### `GET /incidents/`

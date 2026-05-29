@@ -53,6 +53,7 @@ graph TD
 | `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 ChromaDB（透過注入的 `VectorStoreService`） |
 | `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
 | `services/vector_store.py` | 封裝 ChromaDB 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
+| `services/llm_service.py` | `LLMProvider` 介面與 `OpenAICompatibleLLMProvider`；`build_rag_prompt` 和 `format_citations` 純函式 |
 | `services/etl_service.py` | CSV/Excel/JSON 匯入、正規化、寫入 PostgreSQL |
 | `services/ai_service.py` | 調度 LLM 工具呼叫，執行分類、評分、洞察 |
 | `services/log_service.py` | 將每次 AI 執行記錄至 `ai_run_log` 資料表 |
@@ -95,6 +96,33 @@ GET /projects/{id}/search?query=...&top_k=5
        chunk_id 可 1:1 對回 PostgreSQL 的 document_chunks 列
 ```
 
+### RAG Chat
+
+```
+POST /projects/{id}/chat  { question, top_k }
+  │
+  ├─ Project 404 防護
+  │
+  ├─ VectorStoreService.search(project_id, question, top_k)
+  │    └─ 嵌入問題 → ChromaDB query（where project_id == {id}）→ top-k hits
+  │         每筆 hit：{ chunk_id, content, metadata, distance, score }
+  │
+  ├─ build_rag_prompt(hits)
+  │    └─ 編號 context 區塊 + 幻覺防護規則
+  │
+  ├─ OpenAICompatibleLLMProvider.complete(system_prompt, question)
+  │    └─ temperature=0.1，model 由 LLM_MODEL 環境變數決定
+  │
+  ├─ format_citations(hits)
+  │    └─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 字元) }
+  │
+  ├─ AgentRun INSERT（task_type="rag_chat", status, latency_ms, input_json, output_json）
+  │    └─ ToolCall INSERT（tool_name="vector_search", latency_ms, hit_count, chunk_ids）
+  │
+  └─ 回傳 ChatResponse  { answer, citations[] }
+       citations 透過 chunk_id == document_chunks.id 對回 PostgreSQL
+```
+
 ### 事件 ETL + AI 分析
 
 ```
@@ -134,10 +162,22 @@ Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 ## LLMProvider 設計
 
 ```python
-class LLMProvider:
+class LLMProvider(ABC):
+    @abstractmethod
+    def complete(self, system_prompt: str, user_message: str) -> tuple[str, dict]:
+        """回傳 (answer_text, usage_metadata)。"""
+
+class OpenAICompatibleLLMProvider(LLMProvider):
     # Configured via OPENAI_BASE_URL — works with:
     # - OpenAI:  https://api.openai.com/v1
     # - Ollama:  http://localhost:11434/v1  (OpenAI-compatible endpoint)
+    def complete(self, system_prompt, user_message): ...
+
+# 新增 OllamaProvider 只需繼承：
+class OllamaProvider(OpenAICompatibleLLMProvider):
+    def __init__(self, model: str = "llama3.1") -> None:
+        super().__init__(api_key="ollama", base_url="http://localhost:11434/v1", model=model)
 ```
 
-切換供應商只需修改 `.env`，不需更動任何程式碼。
+切換 OpenAI 與 Ollama 只需修改 `.env`（`OPENAI_BASE_URL`、`LLM_MODEL`）。
+新增 provider 只需實作 `complete()` 方法。

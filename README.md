@@ -131,6 +131,37 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > requires a valid `OPENAI_API_KEY` in `.env`; without it the upload fails with a
 > clear error (no half-written state).
 
+## Chat (RAG Q&A)
+
+```bash
+# Ask a question over the uploaded documents
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Docker volume data disappeared after container restart. What should I check?",
+    "top_k": 5
+  }'
+
+# Expected response
+# {
+#   "answer": "Check the following:\n- Run `docker inspect <container>` and look at the Mounts field.\n- Confirm the volume type is not `tmpfs`.\n- Verify volumes are declared under the `volumes:` key in docker-compose.yml.",
+#   "citations": [
+#     {
+#       "document_id": "7c1d...",
+#       "chunk_id": "9b2c...",
+#       "filename": "docker_operations.pdf",
+#       "chunk_index": 3,
+#       "snippet": "Docker volumes persist data outside container lifecycle..."
+#     }
+#   ]
+# }
+```
+
+> **Hallucination control:** The model is instructed to answer _only_ from retrieved
+> context. If the context is insufficient it responds with a fixed phrase rather than
+> fabricating an answer. Every request writes one `agent_runs` row and one
+> `tool_calls` row (retrieval step) to PostgreSQL for auditability.
+
 ## Search Documents
 
 ```bash

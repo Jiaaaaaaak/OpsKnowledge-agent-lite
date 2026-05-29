@@ -53,6 +53,7 @@ graph TD
 | `services/document_service.py` | PDF parsing, chunking, then embedding + ChromaDB storage (via injected `VectorStoreService`) |
 | `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
 | `services/vector_store.py` | `VectorStoreService` wrapping ChromaDB: upsert chunk vectors, project-scoped similarity search |
+| `services/llm_service.py` | `LLMProvider` interface + `OpenAICompatibleLLMProvider`; `build_rag_prompt` and `format_citations` pure functions |
 | `services/etl_service.py` | CSV/Excel/JSON ingestion, normalization, PostgreSQL insertion |
 | `services/ai_service.py` | Orchestrates LLM tool calls for classification, scoring, insights |
 | `services/log_service.py` | Records every AI run to `ai_run_log` table |
@@ -95,6 +96,33 @@ GET /projects/{id}/search?query=...&top_k=5
        chunk_id maps 1:1 back to the document_chunks row in PostgreSQL
 ```
 
+### RAG Chat
+
+```
+POST /projects/{id}/chat  { question, top_k }
+  │
+  ├─ Project 404 guard
+  │
+  ├─ VectorStoreService.search(project_id, question, top_k)
+  │    └─ embed question → ChromaDB query (where project_id == {id}) → top-k hits
+  │         each hit: { chunk_id, content, metadata, distance, score }
+  │
+  ├─ build_rag_prompt(hits)
+  │    └─ numbered context blocks + hallucination-guard rules
+  │
+  ├─ OpenAICompatibleLLMProvider.complete(system_prompt, question)
+  │    └─ temperature=0.1, model from LLM_MODEL env var
+  │
+  ├─ format_citations(hits)
+  │    └─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 chars) }
+  │
+  ├─ AgentRun INSERT  (task_type="rag_chat", status, latency_ms, input_json, output_json)
+  │    └─ ToolCall INSERT  (tool_name="vector_search", latency_ms, hit_count, chunk_ids)
+  │
+  └─ Return ChatResponse  { answer, citations[] }
+       citations map back to PostgreSQL via chunk_id == document_chunks.id
+```
+
 ### Incident ETL + AI Analysis
 
 ```
@@ -134,10 +162,22 @@ Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 ## LLMProvider Design
 
 ```python
-class LLMProvider:
+class LLMProvider(ABC):
+    @abstractmethod
+    def complete(self, system_prompt: str, user_message: str) -> tuple[str, dict]:
+        """Returns (answer_text, usage_metadata)."""
+
+class OpenAICompatibleLLMProvider(LLMProvider):
     # Configured via OPENAI_BASE_URL — works with:
     # - OpenAI:  https://api.openai.com/v1
     # - Ollama:  http://localhost:11434/v1  (OpenAI-compatible endpoint)
+    def complete(self, system_prompt, user_message): ...
+
+# Adding OllamaProvider requires only subclassing:
+class OllamaProvider(OpenAICompatibleLLMProvider):
+    def __init__(self, model: str = "llama3.1") -> None:
+        super().__init__(api_key="ollama", base_url="http://localhost:11434/v1", model=model)
 ```
 
-Switching between providers requires only `.env` changes, no code changes.
+Switching between OpenAI and Ollama requires only `.env` changes (`OPENAI_BASE_URL`, `LLM_MODEL`).
+Adding a new provider requires only implementing `complete()`.
