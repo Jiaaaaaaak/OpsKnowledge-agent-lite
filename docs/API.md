@@ -384,13 +384,80 @@ Get a single incident record.
 
 ---
 
-## Analysis _(Step 4)_
+## Incident Analysis Agent
 
-### `POST /analysis/run`
-Trigger AI classification + scoring on a batch of incidents.
+### `POST /projects/{project_id}/analyze/incidents`
 
-### `GET /analysis/results`
-List AI analysis results.
+Run the multi-tool incident analysis agent over a project's cleaned records. The agent
+chains four tools and persists results into `incident_analysis`, `insights`, and
+`action_items`. One row is written to `agent_runs` plus four rows to `tool_calls`
+(one per tool) for full auditability.
+
+The endpoint is idempotent for already-analyzed records: it processes only
+`cleaned_records` that do not yet have a row in `incident_analysis`, so it can be
+re-run safely after ingesting more tickets without deleting prior analysis.
+
+**Path Parameter**
+
+| Parameter | Type | Description |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Request Body**: none.
+
+**Pipeline**
+
+| Step | Tool | Input | Output |
+|---|---|---|---|
+| 1 | `classify_incidents` | each cleaned record | category ∈ {network_issue, storage_issue, deployment_issue, permission_issue, security_issue, performance_issue, data_quality_issue, unknown} |
+| 2 | `analyze_severity` | each cleaned record | severity_score (1-5), sentiment_score (-1..1), confidence (0..1), reason; `needs_review=true` when `confidence < 0.65` |
+| 3 | `generate_insights` | aggregated category counts + high-severity samples | project-level insights (title, summary, evidence, recommendation) |
+| 4 | `create_action_items` | insights | action items (title, description, priority, owner_role, `status="open"`) |
+
+Every tool calls the configured LLM via `LLMProvider.complete()` requesting structured
+JSON. The output is validated with Pydantic; on validation failure the tool logs the
+error, the corresponding `tool_calls` row records `error_message`, and the overall
+agent run is marked `status="partial"` rather than silently dropping the failure.
+
+**Example request**
+```bash
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
+```
+
+**Response 200**
+```json
+{
+  "agent_run_id": "9c8f3b1a-0f4c-4f1d-9b65-1c0c3a86a512",
+  "status": "success",
+  "summary": {
+    "records_analyzed": 20,
+    "needs_review": 3,
+    "insights_created": 5,
+    "action_items_created": 4
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| agent_run_id | UUID of the `agent_runs` row written for this invocation |
+| status | `success`, `partial` (one or more tool validations failed), or `error` (orchestrator-level failure) |
+| summary.records_analyzed | Number of `incident_analysis` rows created |
+| summary.needs_review | Records with `confidence < 0.65` |
+| summary.insights_created | Number of `insights` rows created |
+| summary.action_items_created | Number of `action_items` rows created (all `status="open"`) |
+
+**Observability** — every request writes:
+- One `agent_runs` row (`task_type="analyze_incidents"`, `model_name`, `latency_ms`, `status`, `input_json` includes record count, `output_json` includes the summary and list of tools run)
+- Four `tool_calls` rows, one per tool: `tool_name`, per-tool `input_json` / `output_json`, `latency_ms`, and `error_message` when JSON validation fails
+
+Use these tables to trace any analysis after the fact — see the [debugging section in README](../README.md#observability--debugging).
+
+**Errors**
+- `400` — `{"detail": "No cleaned records to analyze..."}` (upload tickets first or all records already analyzed)
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id is not a valid UUID
+- `500` — LLM provider unavailable or orchestrator-level failure (also written to `agent_runs` with `status="error"`)
 
 ---
 

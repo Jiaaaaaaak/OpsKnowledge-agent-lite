@@ -355,6 +355,107 @@ WHERE project_id = '<your-project-id>'
 GROUP BY priority;
 ```
 
+## Incident Analysis Agent
+
+After ingesting tickets, run the multi-tool incident analysis agent. It chains four
+LLM-driven tools and writes results into PostgreSQL with full audit trail.
+
+```bash
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
+
+# Expected response
+# {
+#   "agent_run_id": "9c8f3b1a-0f4c-4f1d-9b65-1c0c3a86a512",
+#   "status": "success",
+#   "summary": {
+#     "records_analyzed": 20,
+#     "needs_review": 3,
+#     "insights_created": 5,
+#     "action_items_created": 4
+#   }
+# }
+```
+
+**The four tools (run in sequence)**
+
+| # | Tool | Persists to |
+|---|---|---|
+| 1 | `classify_incidents` — categorize each ticket | (combined into `incident_analysis`) |
+| 2 | `analyze_severity` — severity 1-5, sentiment, confidence, `needs_review` flag | `incident_analysis` |
+| 3 | `generate_insights` — project-level patterns and recommendations | `insights` |
+| 4 | `create_action_items` — actionable follow-ups derived from insights | `action_items` (all `status="open"`) |
+
+Every tool requests structured JSON from the LLM and validates the output with
+Pydantic; validation failures are recorded rather than silently dropped. The endpoint
+is idempotent — re-running it skips records already in `incident_analysis`. Full API
+reference: [docs/API.md](docs/API.md#incident-analysis-agent).
+
+## Demo Flow (end-to-end, mock mode)
+
+```bash
+# 1. Create a project
+PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
+  -H "Content-Type: application/json" \
+  -d '{"name":"IT Operations Demo"}' | jq -r '.id')
+
+# 2. Upload a SOP PDF (RAG corpus)
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
+  -F "file=@demo_data/documents/your_manual.pdf"
+
+# 3. Upload incident tickets (CSV / Excel / JSON)
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
+  -F "file=@demo_data/tickets/sample_incidents.csv"
+
+# 4. Run the incident analysis agent
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
+
+# 5. Ask a grounded question over the SOP corpus
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"How do I respond to a Docker volume outage?","top_k":5}'
+```
+
+## Observability & Debugging
+
+Every agent invocation writes one row to `agent_runs` plus one row per tool call to
+`tool_calls`. They are the primary debugging surface — there is no other log to
+correlate against.
+
+```sql
+-- Last 10 agent runs (chat + analysis) for a project
+SELECT id, task_type, model_name, status, latency_ms, created_at
+FROM agent_runs
+WHERE project_id = '<your-project-id>'
+ORDER BY created_at DESC
+LIMIT 10;
+
+-- All tool calls for one analysis run (in order)
+SELECT tool_name, latency_ms, error_message, output_json
+FROM tool_calls
+WHERE agent_run_id = '<agent_run_id from the response>'
+ORDER BY created_at;
+
+-- Find runs where any tool failed validation
+SELECT ar.id, ar.task_type, ar.status, tc.tool_name, tc.error_message
+FROM agent_runs ar
+JOIN tool_calls tc ON tc.agent_run_id = ar.id
+WHERE tc.error_message IS NOT NULL
+ORDER BY ar.created_at DESC;
+```
+
+How to use this trail when something looks wrong:
+- **`agent_runs.status = "partial"`** → at least one tool's LLM output failed Pydantic
+  validation. Look at `tool_calls.error_message` for the failing tool to see the parse
+  error, then `tool_calls.input_json` to see what was sent. The orchestrator does not
+  retry — partial runs persist whatever the other tools produced.
+- **`agent_runs.status = "error"`** → orchestrator-level failure (LLM provider
+  unreachable, DB error, etc.). `agent_runs.error_message` carries the exception.
+- **Unexpected category / severity** → `tool_calls.output_json` for `classify_incidents`
+  and `analyze_severity` summarizes counts; join with `incident_analysis` by record
+  to drill in.
+- **High latency** → `tool_calls.latency_ms` per tool isolates the slow step (typically
+  one of the per-record tools when running against a real LLM).
+
 ## Implementation Status
 
 - [x] Step 1: Project scaffold, health endpoint, Docker Compose
@@ -364,7 +465,7 @@ GROUP BY priority;
 - [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
 - [x] Prompt 7: RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
 - [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows
-- [ ] Step 4: AI analysis tools (classify incidents, score severity, generate insights)
+- [x] Step 4: Incident analysis agent (`POST /projects/{id}/analyze/incidents` — 4 tools, structured JSON, Pydantic validation, full agent_runs/tool_calls trail)
 - [ ] Step 6: Streamlit dashboard (complete)
 - [x] Local model provider (Ollama) — native HTTP LLM provider for private / on-premise deployment
-- [ ] Step 8+: Local embedding provider, agent tools
+- [ ] Step 8+: Local embedding provider, additional agent tools

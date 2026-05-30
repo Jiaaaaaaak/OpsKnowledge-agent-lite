@@ -150,6 +150,55 @@ Incident batch → LLM classify + score → AI results → PostgreSQL (incident_
 Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 ```
 
+### Incident Analysis Agent Workflow
+
+```
+POST /projects/{id}/analyze/incidents
+  │
+  ├─ Project 404 guard
+  │
+  ├─ Load cleaned_records WHERE id NOT IN (existing incident_analysis.record_id)
+  │    └─ Idempotent: previously-analyzed records are skipped, never overwritten
+  │
+  ├─ One AgentRun row (id pre-generated) — task_type="analyze_incidents"
+  │
+  ├─ Tool 1: classify_incidents(records)
+  │    └─ Per record: LLMProvider.complete(<<AGENT_TASK:classify>>, record_json)
+  │         → ClassifyOutput Pydantic validation
+  │         → ToolCall row (tool_name="classify_incidents", category counts)
+  │
+  ├─ Tool 2: analyze_severity(records)
+  │    └─ Per record: LLMProvider.complete(<<AGENT_TASK:severity>>, record_json)
+  │         → SeverityOutput Pydantic validation (severity 1-5, sentiment -1..1, confidence 0..1)
+  │         → needs_review = confidence < 0.65
+  │         → ToolCall row (tool_name="analyze_severity", needs_review count)
+  │
+  ├─ Persist IncidentAnalysis rows (combines tool 1 + tool 2 outputs per record_id)
+  │
+  ├─ Tool 3: generate_insights({category_counts, high_severity_samples, total})
+  │    └─ LLMProvider.complete(<<AGENT_TASK:insights>>, aggregation_json)
+  │         → InsightsOutput Pydantic validation
+  │         → Insight rows INSERT
+  │         → ToolCall row (tool_name="generate_insights")
+  │
+  ├─ Tool 4: create_action_items(insights)
+  │    └─ LLMProvider.complete(<<AGENT_TASK:action_items>>, insights_json)
+  │         → ActionItemsOutput Pydantic validation
+  │         → ActionItem rows INSERT (status="open")
+  │         → ToolCall row (tool_name="create_action_items")
+  │
+  ├─ AgentRun UPDATE (status, latency_ms, output_json={summary, tools_run})
+  │    status = "success" | "partial" (some tool validation failed) | "error" (orchestrator-level)
+  │
+  └─ Return AnalyzeResponse  { agent_run_id, status, summary }
+
+Safety properties:
+- No destructive actions: existing analysis rows are never deleted (Rule 15)
+- No external side effects: no email, no Slack, no outbound HTTP beyond LLM provider
+- Deterministic in mock mode: MockLLMProvider dispatches by <<AGENT_TASK:xxx>> marker
+- Validation failures are surfaced (Rule 12): logged + recorded in tool_calls.error_message
+```
+
 ## Port Map
 
 | Service | Port |
