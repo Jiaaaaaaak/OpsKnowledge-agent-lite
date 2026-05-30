@@ -390,6 +390,43 @@ Pydantic; validation failures are recorded rather than silently dropped. The end
 is idempotent — re-running it skips records already in `incident_analysis`. Full API
 reference: [docs/API.md](docs/API.md#incident-analysis-agent).
 
+## Frontend (Streamlit)
+
+The Streamlit UI is the recommended way to drive the full demo. It mirrors the
+backend API surface and is what an interviewer or stakeholder will actually see.
+
+### Pages
+
+| Page | Purpose |
+|---|---|
+| Project Setup | Create or select the active project (kept in session state) |
+| Upload | Upload PDFs (RAG corpus) and incident tickets (ETL → cleaned_records) |
+| Knowledge Chat | RAG Q&A — answer + citations (filename, chunk index, snippet) |
+| Incident Analysis | One-click "Run Incident Analysis" — fires the 4-tool agent and shows the summary |
+| Dashboard | ticket count, category / severity distribution charts, top insights, open action items, recent agent runs |
+| Agent Logs | Browse `agent_runs`; select a row to drill into its `tool_calls` (input / output / errors / latency per tool) |
+
+### Run with Docker (preferred for demo)
+```bash
+docker compose up --build
+# UI:      http://localhost:8501
+# Backend: http://localhost:8000
+```
+`BACKEND_URL=http://backend:8000` is injected by `docker-compose.yml`, so the
+Streamlit container reaches the backend over the compose network.
+
+### Run locally (no Docker)
+```bash
+# Start the backend first (see Local Development above), then:
+cd frontend
+pip install -r requirements.txt
+BACKEND_URL=http://localhost:8000 streamlit run streamlit_app.py
+# UI: http://localhost:8501
+```
+
+`BACKEND_URL` defaults to `http://localhost:8000` if unset. All HTTP errors are
+caught and surfaced via `st.error()` — the UI never shows a Python traceback.
+
 ## Demo Flow (end-to-end, mock mode)
 
 ```bash
