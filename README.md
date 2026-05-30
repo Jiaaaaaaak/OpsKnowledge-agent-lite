@@ -23,20 +23,76 @@ An enterprise-style AI + Data Engineering POC for IT operations and system integ
 - **Frontend**: Streamlit
 - **Infra**: Docker Compose
 
-## Quick Start
+## Quick Start (Docker Compose)
+
+Four steps, no manual setup beyond the `.env`:
 
 ```bash
-# 1. Clone and configure
+# 1. Copy the env template (defaults to mock mode — no API key needed)
 cp .env.example .env
-# .env defaults to mock mode (EMBEDDING_PROVIDER=mock, LLM_PROVIDER=mock) —
-# no API key needed. To use real models, see "Provider modes" below.
 
-# 2. Start all services
+# 2. (Optional) edit .env if you want real models
+#    - Set LLM_PROVIDER=openai and fill OPENAI_API_KEY for hosted OpenAI
+#    - Set LLM_PROVIDER=ollama and OLLAMA_BASE_URL=http://host.docker.internal:11434
+#      for a host-side Ollama (Docker Desktop only; on Linux use `--network host` or
+#      add `extra_hosts: ["host.docker.internal:host-gateway"]`)
+
+# 3. Build and start the full stack (postgres, chromadb, backend, frontend)
 docker compose up --build
+# or, equivalently with the included Makefile:
+make up
 
-# 3. Verify
-curl http://localhost:8000/health
-# Open http://localhost:8501 in browser
+# 4. Open the UI
+#    Frontend (Streamlit): http://localhost:8501
+#    Backend docs:          http://localhost:8000/docs
+#    Backend health:        http://localhost:8000/health
+```
+
+Stop everything (data is preserved in named volumes):
+```bash
+docker compose down    # or: make down
+```
+
+Wipe data and start over (destructive — drops postgres + chroma volumes):
+```bash
+make clean              # asks for confirmation
+```
+
+### Services and ports
+
+| Service | Host port | Container port | Image / build |
+|---|---|---|---|
+| frontend (Streamlit) | **8501** | 8501 | built from `frontend/Dockerfile` |
+| backend (FastAPI) | **8000** | 8000 | built from `backend/Dockerfile` |
+| postgres | **5432** | 5432 | `postgres:16-alpine` |
+| chromadb | **8001** | 8000 | `chromadb/chroma:0.5.23` (host 8001 to avoid clashing with backend) |
+
+### Startup ordering
+
+`docker-compose.yml` chains the services with healthchecks so each one only starts
+after its dependencies are actually ready:
+
+```
+postgres (pg_isready)  ─┐
+                        ├─► backend (waits for both via service_healthy)
+chromadb (/heartbeat)  ─┘             │
+                                      └─► frontend (waits for backend /health)
+```
+
+Backend container runs `python scripts/create_tables.py && uvicorn ...` on start —
+schema is applied automatically before the API comes up.
+
+### Useful Make targets
+
+```bash
+make up           # build + start in background
+make down         # stop (keep data)
+make logs         # tail all services (logs-backend / logs-frontend / ... for one)
+make ps           # show container status
+make health       # curl /health and pretty-print
+make test         # run backend pytest inside the backend container
+make psql         # open a psql shell against the postgres container
+make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 ```
 
 ### Provider modes
@@ -492,6 +548,21 @@ How to use this trail when something looks wrong:
   to drill in.
 - **High latency** → `tool_calls.latency_ms` per tool isolates the slow step (typically
   one of the per-record tools when running against a real LLM).
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `make up` fails with `.env 不存在` | First-time setup not done | `cp .env.example .env` then retry |
+| `bind: address already in use` on port 5432 / 8000 / 8001 / 8501 | Local Postgres / another dev server is holding the port | Stop the conflicting process, or change the **host** side of the port mapping in `docker-compose.yml` (e.g. `"5433:5432"`) |
+| `backend` container restarts in a loop | Schema migration failed (postgres not actually ready, or volume from older schema lingers) | `make logs-backend` to see the traceback; if schema changed, `make clean` wipes volumes (destructive) |
+| `chromadb` healthcheck never goes healthy | First boot can take 10-20s; on slow disks longer | Wait; if still red after 60s: `make logs-chromadb`. Persistent failure is usually a corrupted volume — `make clean` resets it |
+| Frontend shows `無法連線到後端 (http://backend:8000)` | Backend container is down or not yet healthy | `make ps` to check status; `make logs-backend` for the cause |
+| Chat / analysis returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
+| Ollama mode can't reach the server from container | Linux Docker doesn't auto-resolve `host.docker.internal` | Add `extra_hosts: ["host.docker.internal:host-gateway"]` under the `backend` service, or run Ollama inside the same compose network |
+| Tests fail with `ModuleNotFoundError` when running `make test-local` | Local `.venv` missing or stale | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
+| Postgres / Chroma data unexpectedly empty after restart | Someone ran `docker compose down -v` or `make clean` | Volumes were dropped on purpose — re-ingest. Use `make down` (without `-v`) to preserve data |
+| Windows / WSL2 path issues with bind mounts | Volume mounts use Linux paths | Run all commands from inside WSL2, not from PowerShell |
 
 ## Implementation Status
 
