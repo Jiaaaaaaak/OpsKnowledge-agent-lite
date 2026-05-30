@@ -21,6 +21,7 @@ from app.services.embedding_service import (
 )
 from app.services.llm_service import (
     MockLLMProvider,
+    OllamaLLMProvider,
     OpenAICompatibleLLMProvider,
     build_rag_prompt,
     format_citations,
@@ -159,6 +160,75 @@ class TestMockLLMProvider:
 
 
 # ─────────────────────────────────────────────────────────────
+# OllamaLLMProvider（以 mocked httpx 驗證，不需真的 Ollama 伺服器）
+# ─────────────────────────────────────────────────────────────
+
+class TestOllamaLLMProvider:
+
+    def _ok_response(self):
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "message": {"role": "assistant", "content": "Run docker inspect to check the mounts."},
+            "prompt_eval_count": 42,
+            "eval_count": 17,
+        }
+        return resp
+
+    def test_parses_answer_and_usage(self):
+        # 驗證 provider 正確解析 Ollama 原生回應的 message.content 與 token 計數
+        provider = OllamaLLMProvider(base_url="http://localhost:11434", model="qwen2.5:7b-instruct")
+        with patch("httpx.post", return_value=self._ok_response()) as mock_post:
+            answer, usage = provider.complete("system prompt", "user question")
+        assert answer == "Run docker inspect to check the mounts."
+        assert usage == {"prompt_tokens": 42, "completion_tokens": 17}
+
+    def test_calls_native_ollama_chat_endpoint(self):
+        # 必須打 Ollama 原生 /api/chat（非 OpenAI /v1），且為非串流模式
+        provider = OllamaLLMProvider(base_url="http://localhost:11434/", model="qwen2.5:7b-instruct")
+        with patch("httpx.post", return_value=self._ok_response()) as mock_post:
+            provider.complete("system prompt", "user question")
+        assert mock_post.call_args.args[0] == "http://localhost:11434/api/chat"
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["model"] == "qwen2.5:7b-instruct"
+        assert payload["stream"] is False
+        assert payload["messages"][0]["role"] == "system"
+        assert payload["messages"][1]["content"] == "user question"
+
+    def test_unreachable_server_raises_clear_error(self):
+        # Ollama 未啟動時必須丟出帶有明確訊息的 RuntimeError，而非靜默失敗
+        import httpx
+
+        provider = OllamaLLMProvider(base_url="http://localhost:11434")
+        with patch("httpx.post", side_effect=httpx.ConnectError("connection refused")):
+            with pytest.raises(RuntimeError, match="無法連線到 Ollama"):
+                provider.complete("system prompt", "user question")
+
+    def test_http_error_raises_clear_error(self):
+        # 模型未下載 → Ollama 回非 2xx；錯誤訊息要引導使用者 ollama pull
+        import httpx
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "404", request=MagicMock(), response=MagicMock(status_code=404)
+        )
+        provider = OllamaLLMProvider(model="missing-model")
+        with patch("httpx.post", return_value=resp):
+            with pytest.raises(RuntimeError, match="ollama pull"):
+                provider.complete("system prompt", "user question")
+
+    def test_uses_settings_defaults(self):
+        with patch.object(settings, "ollama_base_url", "http://example:1234"), \
+             patch.object(settings, "ollama_model", "llama3.1"):
+            provider = OllamaLLMProvider()
+        assert provider._base_url == "http://example:1234"
+        assert provider._model == "llama3.1"
+
+
+# ─────────────────────────────────────────────────────────────
 # get_embedding_provider() factory
 # ─────────────────────────────────────────────────────────────
 
@@ -200,6 +270,12 @@ class TestGetLLMProviderFactory:
              patch("openai.OpenAI"):
             provider = get_llm_provider()
         assert isinstance(provider, OpenAICompatibleLLMProvider)
+
+    def test_returns_ollama_when_configured(self):
+        # ollama 模式回傳原生 provider，且建構時不需任何網路呼叫或 API key
+        with patch.object(settings, "llm_provider", "ollama"):
+            provider = get_llm_provider()
+        assert isinstance(provider, OllamaLLMProvider)
 
 
 # ─────────────────────────────────────────────────────────────

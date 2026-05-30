@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Provider selection
     # "openai" — calls OpenAI-compatible API (requires a real OPENAI_API_KEY)
+    # "ollama" — calls a local Ollama HTTP server (private / on-premise deployment)
     # "mock"   — deterministic local provider; no API key needed; safe for CI / local dev
     embedding_provider: str = "openai"
     llm_provider: str = "openai"
@@ -40,6 +41,10 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+
+    # Ollama (local LLM provider for private / on-premise deployment)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:7b-instruct"
 
 
 settings = Settings()

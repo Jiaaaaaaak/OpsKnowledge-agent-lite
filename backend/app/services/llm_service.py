@@ -39,14 +39,8 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     """
     基於 OpenAI SDK 的 provider，可對接任何 OpenAI-compatible endpoint。
 
-    新增 OllamaProvider 範例：
-        class OllamaProvider(OpenAICompatibleLLMProvider):
-            def __init__(self, model: str = "llama3.1") -> None:
-                super().__init__(
-                    api_key="ollama",
-                    base_url="http://localhost:11434/v1",
-                    model=model,
-                )
+    若要改用本地模型，請改用 OllamaLLMProvider（直接呼叫 Ollama 原生 API），
+    或設定 LLM_PROVIDER=ollama。
     """
 
     def __init__(
@@ -84,6 +78,66 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         return answer, usage
 
 
+class OllamaLLMProvider(LLMProvider):
+    """
+    原生 Ollama HTTP provider，直接呼叫本機 Ollama 的 /api/chat 端點。
+
+    與 OpenAICompatibleLLMProvider 不同，這個 provider 不經過 OpenAI SDK，
+    而是直接打 Ollama 原生 API，用來示範 LLM 後端可完全替換成本地、
+    私有 / 地端部署的模型。base_url 與 model 讀自 OLLAMA_BASE_URL / OLLAMA_MODEL。
+    若 Ollama 服務未啟動或無法連線，complete() 會丟出帶有明確訊息的 RuntimeError。
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        model: str | None = None,
+        temperature: float = 0.1,
+        timeout: float = 60.0,
+    ) -> None:
+        self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
+        self._model = model or settings.ollama_model
+        self._temperature = temperature
+        self._timeout = timeout
+
+    def complete(self, system_prompt: str, user_message: str) -> tuple[str, dict]:
+        import httpx
+
+        url = f"{self._base_url}/api/chat"
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "stream": False,
+            "options": {"temperature": self._temperature},
+        }
+        try:
+            response = httpx.post(url, json=payload, timeout=self._timeout)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # 連得上服務，但模型或請求有問題（最常見：模型尚未 pull 下來）
+            raise RuntimeError(
+                f"Ollama 回傳錯誤狀態 {exc.response.status_code}（model={self._model}）："
+                f"請確認模型已下載（執行 `ollama pull {self._model}`）。"
+            ) from exc
+        except httpx.RequestError as exc:
+            # 連不上服務本身
+            raise RuntimeError(
+                f"無法連線到 Ollama（{url}）：請確認 Ollama 服務已啟動（`ollama serve`）"
+                f"且 OLLAMA_BASE_URL 設定正確。原始錯誤：{exc}"
+            ) from exc
+
+        data = response.json()
+        answer = data.get("message", {}).get("content", "")
+        usage = {
+            "prompt_tokens": data.get("prompt_eval_count", 0),
+            "completion_tokens": data.get("eval_count", 0),
+        }
+        return answer, usage
+
+
 class MockLLMProvider(LLMProvider):
     """
     完全本地、確定性的 LLM provider，不需任何 API 金鑰。
@@ -111,10 +165,13 @@ def get_llm_provider() -> LLMProvider:
     """
     從 LLM_PROVIDER 環境變數選擇 LLM provider。
     "mock"  → MockLLMProvider（不需 API key，適合 CI / 本地開發）
+    "ollama"→ OllamaLLMProvider（呼叫本機 Ollama，私有 / 地端部署用）
     "openai"→ OpenAICompatibleLLMProvider（需 OPENAI_API_KEY）
     """
     if settings.llm_provider == "mock":
         return MockLLMProvider()
+    if settings.llm_provider == "ollama":
+        return OllamaLLMProvider()
     return OpenAICompatibleLLMProvider()
 
 

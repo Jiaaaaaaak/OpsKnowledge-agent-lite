@@ -45,6 +45,12 @@ curl http://localhost:8000/health
 |---|---|---|---|
 | **mock**（預設） | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 確定性本地 provider；可完全離線跑完整流程 |
 | **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | 呼叫 OpenAI 相容 API 取得真實嵌入與回答 |
+| **ollama**（LLM） | `LLM_PROVIDER=ollama`（搭配 `EMBEDDING_PROVIDER=openai` 或 `mock`） | LLM 不需 API key | 呼叫本機 Ollama 伺服器取得回答 — 供私有／地端部署使用 |
+
+> **雲端 API vs 本地模型。** `openai` provider 用於**快速 POC** — 設定成本最低、
+> 開箱即用的品質佳。`ollama` provider 則為**私有／地端部署**預備，讓 LLM 在客戶
+> 網路內執行、資料不離開主機。切換只需修改一行 `.env`（`LLM_PROVIDER`），不需更動
+> 任何應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
 
 ### 主機名稱：Docker vs 本機
 
@@ -54,6 +60,34 @@ curl http://localhost:8000/health
 - **Docker Compose** 會將其覆寫為服務名稱 `postgres` 與 `chromadb`
   （定義於 `docker-compose.yml`），因此容器網路不需要修改 `.env`。
 - **本機（不使用 Docker）** 使用 `.env.example` 預設的 `localhost`。
+
+## 本地模型 Provider（Ollama）
+
+針對私有／地端情境，LLM 可透過 [Ollama](https://ollama.com) 完全在本地硬體上執行，
+不需 OpenAI 帳號、資料不離開主機。`OllamaLLMProvider` 直接呼叫 Ollama 原生 HTTP
+API（`/api/chat`）。
+
+```bash
+# 1. 安裝並啟動 Ollama，再下載模型
+ollama serve                       # 在 :11434 啟動本地伺服器
+ollama pull qwen2.5:7b-instruct
+
+# 2. 讓應用程式指向 Ollama（.env）
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b-instruct
+# embedding 與 LLM 獨立 — 可維持 EMBEDDING_PROVIDER=mock（離線）或 =openai
+EMBEDDING_PROVIDER=mock
+```
+
+這是唯一需要的改動 — 不需更動任何應用程式碼。若 Ollama 伺服器無法連線，`/chat`
+會以明確錯誤回應（例如 *「無法連線到 Ollama … 請確認 Ollama 服務已啟動」*），
+而不是卡住或回傳捏造的答案。
+
+> **範圍：** 這個 provider 只涵蓋 **LLM**。embedding 仍由 `EMBEDDING_PROVIDER`
+> （`openai` / `mock`）選擇。要做到完全地端，還需要一個本地 embedding provider —
+> `EmbeddingProvider` 介面支援以相同方式新增。Ollama **不是一般展示的必要條件**：
+> 預設的 mock 模式即可在零外部相依的情況下跑完整個流程。
 
 ## 本機開發（不使用 Docker）
 
@@ -262,3 +296,4 @@ GROUP BY priority;
 - [ ] 步驟 5：可觀測性層（AI 執行日誌）
 - [ ] 步驟 6：Streamlit 儀表板（完整版）
 - [ ] 步驟 7：測試與最終文件
+- [x] 本地模型 provider（Ollama）— 原生 HTTP LLM provider，供私有／地端部署

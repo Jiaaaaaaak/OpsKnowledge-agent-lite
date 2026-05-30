@@ -1,7 +1,9 @@
-# CLAUDE.md — 12-rule template
+# CLAUDE.md — 18-rule template
 
 These rules apply to every task in this project unless explicitly overridden.
 Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
+Rule 1–13：工作方式與語言規範
+Rule 14–18：專案安全與工程實務
 
 ## Rule 1 — Think Before Coding
 State assumptions explicitly. If uncertain, ask rather than guess.
@@ -67,3 +69,49 @@ Default to surfacing uncertainty, not hiding it.
 - 註解（comments）：繁體中文。
 - 對使用者的回覆：繁體中文。
 - commit message：繁體中文。
+
+
+## Rule 14 — Project Commands Are Source of Truth
+Use only the commands documented in this repository unless explicitly told otherwise.
+Before running install, build, test, migration, or deployment commands, check README, Makefile, package scripts, docker-compose files, or existing CI config.
+
+Do not invent commands.
+If multiple command sources conflict, prefer CI config first, then Makefile, then README, then package scripts.
+Surface the conflict before proceeding.
+
+## Rule 15 — Data Safety First
+Never delete, reset, or migrate databases, volumes, generated data, or user files without explicit permission.
+Destructive commands require a clear warning and confirmation.
+
+Examples of destructive actions:
+- docker volume rm
+- docker compose down -v
+- database reset/drop/truncate
+- migration rollback
+- deleting uploaded files, embeddings, or indexed documents
+
+## Rule 16 — Debug Before Fixing
+When debugging, first identify the failing boundary:
+- configuration
+- environment
+- dependency
+- database
+- network
+- application logic
+- test expectation
+
+Do not patch symptoms before explaining the suspected root cause.
+Prefer one focused diagnostic command before editing code.
+
+## Rule 17 — Secrets and Environment Files
+Never commit real secrets, API keys, passwords, tokens, or private URLs.
+Keep `.env.example` safe, minimal, and documented.
+When adding a new environment variable:
+- add it to `.env.example`
+- document its purpose
+- provide a safe default when possible
+- update validation logic if the project has one
+
+## Rule 18 — Preserve Public Contracts
+Do not change API routes, response shapes, database schemas, environment variable names, CLI arguments, or file formats unless required by the task.
+If a contract must change, identify all affected callers, tests, docs, and migration needs.

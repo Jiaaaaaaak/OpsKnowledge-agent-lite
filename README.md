@@ -45,6 +45,14 @@ curl http://localhost:8000/health
 |---|---|---|---|
 | **mock** (default) | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Deterministic local providers; runs the full pipeline offline |
 | **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Calls the OpenAI-compatible API for real embeddings and answers |
+| **ollama** (LLM) | `LLM_PROVIDER=ollama` (+ `EMBEDDING_PROVIDER=openai` or `mock`) | None for the LLM | Calls a local Ollama server for answers — for private / on-premise deployment |
+
+> **Hosted API vs local model.** The `openai` provider is used for a **fast POC** —
+> minimal setup, strong out-of-the-box quality. The `ollama` provider is prepared for
+> **private / on-premise deployment**, where the LLM must run inside the customer's
+> network and no data may leave the host. Switching is a one-line `.env` change
+> (`LLM_PROVIDER`); no application code changes. See
+> [Local model provider (Ollama)](#local-model-provider-ollama) below.
 
 ### Hostnames: Docker vs local
 
@@ -121,6 +129,35 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
   -d '{"question": "What does this document cover?", "top_k": 3}'
 # Response: { "answer": "[mock] ...", "citations": [...] }
 ```
+
+## Local Model Provider (Ollama)
+
+For private / on-premise scenarios the LLM can run entirely on local hardware via
+[Ollama](https://ollama.com), with no OpenAI account and no data leaving the host.
+`OllamaLLMProvider` calls the native Ollama HTTP API (`/api/chat`) directly.
+
+```bash
+# 1. Install and start Ollama, then pull the model
+ollama serve                       # starts the local server on :11434
+ollama pull qwen2.5:7b-instruct
+
+# 2. Point the app at Ollama (.env)
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b-instruct
+# Embeddings are independent — keep EMBEDDING_PROVIDER=mock (offline) or =openai
+EMBEDDING_PROVIDER=mock
+```
+
+That is the only change required — no application code changes. If the Ollama server
+is unreachable, `/chat` fails with a clear error (e.g. *"無法連線到 Ollama … 請確認
+Ollama 服務已啟動"*) rather than hanging or returning a fabricated answer.
+
+> **Scope:** This provider covers the **LLM** only. Embeddings are still selected by
+> `EMBEDDING_PROVIDER` (`openai` / `mock`). A fully local stack would also need a local
+> embedding provider — the `EmbeddingProvider` interface supports adding one the same way.
+> Ollama is **not required for the normal demo**: the default mock mode runs the full
+> pipeline with no external dependencies.
 
 ## Local Development (without Docker)
 
@@ -329,4 +366,5 @@ GROUP BY priority;
 - [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows
 - [ ] Step 4: AI analysis tools (classify incidents, score severity, generate insights)
 - [ ] Step 6: Streamlit dashboard (complete)
-- [ ] Step 8+: Local model provider (Ollama), agent tools
+- [x] Local model provider (Ollama) — native HTTP LLM provider for private / on-premise deployment
+- [ ] Step 8+: Local embedding provider, agent tools

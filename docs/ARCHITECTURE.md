@@ -161,6 +161,10 @@ Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 
 ## LLMProvider Design
 
+The LLM backend is hidden behind a one-method abstraction so it can be swapped
+without touching the RAG/chat flow. `get_llm_provider()` selects the concrete
+implementation from the `LLM_PROVIDER` env var.
+
 ```python
 class LLMProvider(ABC):
     @abstractmethod
@@ -168,16 +172,34 @@ class LLMProvider(ABC):
         """Returns (answer_text, usage_metadata)."""
 
 class OpenAICompatibleLLMProvider(LLMProvider):
-    # Configured via OPENAI_BASE_URL — works with:
-    # - OpenAI:  https://api.openai.com/v1
-    # - Ollama:  http://localhost:11434/v1  (OpenAI-compatible endpoint)
+    # Hosted API via the OpenAI SDK (OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL).
     def complete(self, system_prompt, user_message): ...
 
-# Adding OllamaProvider requires only subclassing:
-class OllamaProvider(OpenAICompatibleLLMProvider):
-    def __init__(self, model: str = "llama3.1") -> None:
-        super().__init__(api_key="ollama", base_url="http://localhost:11434/v1", model=model)
+class OllamaLLMProvider(LLMProvider):
+    # Local / on-premise model. Calls the native Ollama HTTP API (/api/chat)
+    # directly via httpx — no OpenAI SDK, no API key, no data leaving the host.
+    # Configured by OLLAMA_BASE_URL / OLLAMA_MODEL. Raises a clear RuntimeError
+    # if the Ollama server is unreachable.
+    def complete(self, system_prompt, user_message): ...
+
+class MockLLMProvider(LLMProvider):
+    # Deterministic, offline; for CI / local dev (no network call).
+    def complete(self, system_prompt, user_message): ...
 ```
 
-Switching between OpenAI and Ollama requires only `.env` changes (`OPENAI_BASE_URL`, `LLM_MODEL`).
-Adding a new provider requires only implementing `complete()`.
+| `LLM_PROVIDER` | Implementation | Backend | Use case |
+|---|---|---|---|
+| `openai` | `OpenAICompatibleLLMProvider` | OpenAI-compatible API (SDK) | Fast POC / hosted demo |
+| `ollama` | `OllamaLLMProvider` | Local Ollama server (native HTTP) | Private / on-premise deployment |
+| `mock` | `MockLLMProvider` | None (deterministic) | CI / offline local dev |
+
+**Switching providers requires only an `.env` change** (`LLM_PROVIDER`, plus the
+relevant `OPENAI_*` or `OLLAMA_*` values). Adding a new provider requires only
+implementing `complete()` and registering it in `get_llm_provider()`.
+
+> **Hosted vs local scope:** The `openai` path is used for a fast, low-setup POC.
+> The `ollama` path is prepared for private / on-premise scenarios where the LLM
+> must run inside the customer's network. Note the abstraction currently covers
+> the **LLM** only — embeddings are still chosen via `EMBEDDING_PROVIDER`
+> (`openai` / `mock`), so a fully local stack would also need a local embedding
+> provider (a future `EmbeddingProvider` implementation, the same pattern as here).

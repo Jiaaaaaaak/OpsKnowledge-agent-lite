@@ -161,6 +161,9 @@ Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 
 ## LLMProvider 設計
 
+LLM 後端被封裝在只有一個方法的抽象介面之後，因此可以在不動到 RAG／chat 流程的
+情況下替換。`get_llm_provider()` 會依 `LLM_PROVIDER` 環境變數選擇具體實作。
+
 ```python
 class LLMProvider(ABC):
     @abstractmethod
@@ -168,16 +171,31 @@ class LLMProvider(ABC):
         """回傳 (answer_text, usage_metadata)。"""
 
 class OpenAICompatibleLLMProvider(LLMProvider):
-    # Configured via OPENAI_BASE_URL — works with:
-    # - OpenAI:  https://api.openai.com/v1
-    # - Ollama:  http://localhost:11434/v1  (OpenAI-compatible endpoint)
+    # 透過 OpenAI SDK 呼叫雲端 API（OPENAI_API_KEY、OPENAI_BASE_URL、LLM_MODEL）。
     def complete(self, system_prompt, user_message): ...
 
-# 新增 OllamaProvider 只需繼承：
-class OllamaProvider(OpenAICompatibleLLMProvider):
-    def __init__(self, model: str = "llama3.1") -> None:
-        super().__init__(api_key="ollama", base_url="http://localhost:11434/v1", model=model)
+class OllamaLLMProvider(LLMProvider):
+    # 本地 / 地端模型。透過 httpx 直接呼叫 Ollama 原生 HTTP API（/api/chat），
+    # 不經過 OpenAI SDK、不需 API key、資料不離開主機。
+    # 由 OLLAMA_BASE_URL / OLLAMA_MODEL 設定；Ollama 服務無法連線時會丟出明確的 RuntimeError。
+    def complete(self, system_prompt, user_message): ...
+
+class MockLLMProvider(LLMProvider):
+    # 確定性、離線；供 CI / 本地開發使用（無網路呼叫）。
+    def complete(self, system_prompt, user_message): ...
 ```
 
-切換 OpenAI 與 Ollama 只需修改 `.env`（`OPENAI_BASE_URL`、`LLM_MODEL`）。
-新增 provider 只需實作 `complete()` 方法。
+| `LLM_PROVIDER` | 實作 | 後端 | 使用情境 |
+|---|---|---|---|
+| `openai` | `OpenAICompatibleLLMProvider` | OpenAI 相容 API（SDK） | 快速 POC／雲端展示 |
+| `ollama` | `OllamaLLMProvider` | 本地 Ollama 伺服器（原生 HTTP） | 私有／地端部署 |
+| `mock` | `MockLLMProvider` | 無（確定性） | CI／離線本地開發 |
+
+**切換 provider 只需修改 `.env`**（`LLM_PROVIDER`，再加上對應的 `OPENAI_*` 或
+`OLLAMA_*` 設定）。新增 provider 只需實作 `complete()` 並在 `get_llm_provider()`
+中註冊。
+
+> **雲端 vs 地端的範圍：** `openai` 路徑用於低設定成本的快速 POC；`ollama` 路徑則為
+> 私有／地端情境預備好，讓 LLM 能在客戶網路內執行。注意目前這層抽象只涵蓋 **LLM**，
+> embedding 仍由 `EMBEDDING_PROVIDER`（`openai` / `mock`）決定，因此要做到完全地端，
+> 還需要一個本地 embedding provider（未來的 `EmbeddingProvider` 實作，模式與此相同）。
