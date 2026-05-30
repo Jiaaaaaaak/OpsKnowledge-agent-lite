@@ -41,6 +41,14 @@ class DocumentIngestionService:
         overlap: int = _DEFAULT_OVERLAP,
     ) -> list[str]:
         """滑動視窗分塊，回傳非空 chunk 清單."""
+        # 防呆：avoid infinite loop when caller passes chunk_size <= overlap
+        # (start = end - overlap 在這種情況下不會前進)
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+        if overlap < 0 or overlap >= chunk_size:
+            raise ValueError(
+                f"overlap must satisfy 0 <= overlap < chunk_size; got overlap={overlap}, chunk_size={chunk_size}"
+            )
         text = text.strip()
         if not text:
             return []

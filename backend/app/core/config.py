@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     # "openai" — calls OpenAI-compatible API (requires a real OPENAI_API_KEY)
     # "ollama" — calls a local Ollama HTTP server (private / on-premise deployment)
     # "mock"   — deterministic local provider; no API key needed; safe for CI / local dev
-    embedding_provider: str = "openai"
-    llm_provider: str = "openai"
+    # 預設 "mock"：與 .env.example 與 README "defaults to mock mode" 的承諾一致；
+    # 跑測試或第一次 spin up（沒有 .env）時不會因為缺 OPENAI_API_KEY 而崩。
+    embedding_provider: str = "mock"
+    llm_provider: str = "mock"
     mock_embedding_dim: int = 384  # fixed vector dimension used by MockEmbeddingProvider
 
     # OpenAI-compatible LLM
