@@ -461,10 +461,154 @@ Use these tables to trace any analysis after the fact — see the [debugging sec
 
 ---
 
-## Agent Logs _(Step 5)_
+## Dashboard
 
-### `GET /logs/`
-List AI run log entries (with pagination).
+### `GET /projects/{project_id}/dashboard`
 
-### `GET /logs/{id}`
-Get a single run log entry.
+Aggregated project-level summary. Pure PostgreSQL aggregation — **no LLM call**, fast
+and deterministic. Designed to drive the Streamlit dashboard in a single round-trip.
+
+**Path Parameter**
+
+| Parameter | Type | Description |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Query Parameters**
+
+| Parameter | Type | Default | Range | Description |
+|---|---|---|---|---|
+| insights_limit | integer | 5 | 1–50 | Max insights returned in `top_insights` |
+| action_items_limit | integer | 10 | 1–100 | Max open action items returned |
+| agent_runs_limit | integer | 5 | 1–50 | Max recent agent runs returned |
+
+**Example request**
+```bash
+curl "http://localhost:8000/projects/${PROJECT_ID}/dashboard"
+```
+
+**Response 200**
+```json
+{
+  "project_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "ticket_count": 100,
+  "category_distribution": [
+    {"category": "network_issue", "count": 20},
+    {"category": "storage_issue", "count": 15}
+  ],
+  "severity_distribution": [
+    {"severity": 1, "count": 5},
+    {"severity": 3, "count": 30},
+    {"severity": 5, "count": 3}
+  ],
+  "needs_review_count": 4,
+  "top_insights": [
+    {
+      "id": "…",
+      "title": "Top category: network_issue",
+      "summary": "20 incident(s) classified as network_issue.",
+      "recommendation": "Investigate the root cause of network_issue incidents..."
+    }
+  ],
+  "open_action_items": [
+    {
+      "id": "…",
+      "title": "Action: High severity patterns",
+      "description": "Prioritise post-mortems...",
+      "priority": "high",
+      "owner_role": "ops_lead",
+      "status": "open"
+    }
+  ],
+  "recent_agent_runs": [
+    {
+      "id": "…",
+      "task_type": "analyze_incidents",
+      "model_name": "mock",
+      "status": "success",
+      "latency_ms": 142,
+      "created_at": "2026-05-30T10:00:00Z"
+    }
+  ]
+}
+```
+
+| Field | Source | Description |
+|---|---|---|
+| ticket_count | `cleaned_records` | Total imported tickets for the project |
+| category_distribution | `incident_analysis` GROUP BY category | Sorted desc by count, then alpha |
+| severity_distribution | `incident_analysis` GROUP BY severity_score (cast to int) | Sorted asc by severity |
+| needs_review_count | `incident_analysis` WHERE needs_review = true | Low-confidence tickets requiring human review |
+| top_insights | `insights` ORDER BY created_at DESC | Most recent insights, capped by `insights_limit` |
+| open_action_items | `action_items` WHERE status='open' | Open follow-ups, capped by `action_items_limit` |
+| recent_agent_runs | `agent_runs` ORDER BY created_at DESC | Latest agent runs (chat + analysis), capped by `agent_runs_limit` |
+
+**Errors**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id is not a valid UUID, or a query parameter is out of range
+
+---
+
+## Observability
+
+### `GET /projects/{project_id}/agent-runs`
+
+List agent runs for a project (newest first). Use this to power an "Agent Logs" page
+in the UI or for ad-hoc auditing.
+
+**Query Parameters**
+
+| Parameter | Type | Default | Range | Description |
+|---|---|---|---|---|
+| limit | integer | 50 | 1–200 | Page size |
+| offset | integer | 0 | ≥ 0 | Page offset |
+
+**Response 200** — list of `AgentRunRead`:
+```json
+[
+  {
+    "id": "…",
+    "project_id": "…",
+    "task_type": "analyze_incidents",
+    "model_name": "mock",
+    "input_json": {"project_id": "…", "record_count": 20},
+    "output_json": {"records_analyzed": 20, "tools_run": ["classify_incidents", "..."]},
+    "status": "success",
+    "latency_ms": 142,
+    "error_message": null,
+    "created_at": "2026-05-30T10:00:00Z",
+    "updated_at": "2026-05-30T10:00:00Z"
+  }
+]
+```
+
+**Errors**
+- `404` — `{"detail": "Project not found"}`
+- `422` — invalid UUID or out-of-range pagination
+
+---
+
+### `GET /agent-runs/{agent_run_id}/tool-calls`
+
+List tool calls for a single agent run, **in execution order** (ASC by `created_at`).
+Pairs naturally with `/agent-runs` for a drill-down view.
+
+**Response 200** — list of `ToolCallRead`:
+```json
+[
+  {
+    "id": "…",
+    "agent_run_id": "…",
+    "tool_name": "classify_incidents",
+    "input_json": {"project_id": "…", "record_count": 20},
+    "output_json": {"classified": 20, "failed": 0, "categories": {"network_issue": 8, "...": 4}},
+    "error_message": null,
+    "latency_ms": 38,
+    "created_at": "2026-05-30T10:00:00Z"
+  }
+]
+```
+
+**Errors**
+- `404` — `{"detail": "Agent run not found"}`
+- `422` — invalid UUID
