@@ -133,7 +133,9 @@ make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 
 The system ships in **mock mode** by default. To connect a real OpenAI-compatible API:
 
-1. In `backend/.env`, set the provider and key (the model / base URL already have defaults):
+1. In the project-root `.env` (the same file `cp .env.example .env` creates), set the
+   provider and key (the model / base URL already have defaults). Config is anchored to
+   this root `.env`, so it is read no matter which directory you launch from:
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
@@ -148,8 +150,9 @@ The system ships in **mock mode** by default. To connect a real OpenAI-compatibl
    cd backend
    python -m app.utils.verify_providers
    ```
-   This prints the current provider names, sends one short LLM request and one short
-   embedding request, and reports `PASS` / `FAIL`. It **never prints the API key**
+   (the module lives under `backend/`, so run it from there; it still reads the
+   root `.env`.) This prints the current provider names, sends one short LLM request
+   and one short embedding request, and reports `PASS` / `FAIL`. It **never prints the API key**
    (only a masked summary), and exits non-zero on failure so it can be used in CI.
    If the key is missing or invalid it returns a clear error.
 

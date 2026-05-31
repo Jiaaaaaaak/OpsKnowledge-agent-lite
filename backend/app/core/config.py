@@ -1,8 +1,16 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 專案根目錄的 .env 絕對路徑（config.py 位於 backend/app/core/，往上三層為專案根目錄）。
+# 錨定成絕對路徑，讓設定不論從哪個目錄執行（專案根目錄或 backend/）都讀同一份 .env，
+# 避免「相對 CWD 找不到 .env 而退回預設值」的問題。
+# 正式環境仍可由 Docker / OS 環境變數覆蓋（其優先序高於 .env 檔）。
+_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     # App
     app_name: str = "OpsKnowledge Agent Lite"

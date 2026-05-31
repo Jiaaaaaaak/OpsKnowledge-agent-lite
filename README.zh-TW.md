@@ -128,7 +128,8 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 
 系統預設以 **mock 模式**出貨。要接上真正的 OpenAI 相容 API：
 
-1. 在 `backend/.env` 設定 provider 與金鑰（model／base URL 已有預設值）：
+1. 在專案根目錄 `.env`（即 `cp .env.example .env` 建立的那份）設定 provider 與金鑰
+   （model／base URL 已有預設值）。設定已錨定到這份根目錄 `.env`，不論從哪個目錄啟動都會讀到：
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
@@ -143,6 +144,7 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
    cd backend
    python -m app.utils.verify_providers
    ```
+   （此模組位於 `backend/` 底下，需從該目錄執行；但它仍會讀取根目錄的 `.env`。）
    會印出目前 provider 名稱，送出一次短 LLM 請求與一次短 embedding 請求，
    並回報 `PASS` / `FAIL`。它**絕不會印出 API 金鑰**（只顯示遮罩後的摘要），
    失敗時以非 0 結束碼結束，可用於 CI；金鑰缺漏或無效時會回傳清楚的錯誤。
