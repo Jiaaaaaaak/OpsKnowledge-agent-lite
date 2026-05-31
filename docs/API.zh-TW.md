@@ -383,20 +383,228 @@ System prompt 指示模型：
 
 ---
 
-## Analysis _(Step 4)_
+## 事件分析 Agent
 
-### `POST /analysis/run`
-對一批 incident 觸發 AI 分類與評分。
+### `POST /projects/{project_id}/analyze/incidents`
 
-### `GET /analysis/results`
-列出 AI 分析結果。
+對某個 project 的 cleaned records 跑多工具事件分析 agent。Agent 串接 4 個工具，
+結果寫入 `incident_analysis`、`insights`、`action_items`。同時會寫 1 筆 `agent_runs`
+與 4 筆 `tool_calls`（每個工具一筆），提供完整稽核能力。
+
+此端點對已分析過的紀錄是 idempotent 的：只處理還沒有 `incident_analysis` row
+的 `cleaned_records`，所以匯入更多 ticket 之後可以安全重跑，不會刪掉先前分析。
+
+**Path 參數**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Request Body**：無。
+
+**流程**
+
+| 步驟 | 工具 | 輸入 | 輸出 |
+|---|---|---|---|
+| 1 | `classify_incidents` | 每筆 cleaned record | category ∈ {network_issue, storage_issue, deployment_issue, permission_issue, security_issue, performance_issue, data_quality_issue, unknown} |
+| 2 | `analyze_severity` | 每筆 cleaned record | severity_score (1-5)、sentiment_score (-1..1)、confidence (0..1)、reason；`confidence < 0.65` 時 `needs_review=true` |
+| 3 | `generate_insights` | 彙總後的類別計數 + 高嚴重度樣本 | 專案層級 insights（title、summary、evidence、recommendation） |
+| 4 | `create_action_items` | insights | action items（title、description、priority、owner_role、`status="open"`） |
+
+每個工具透過 `LLMProvider.complete()` 向 LLM 索取結構化 JSON，
+輸出以 Pydantic 驗證；驗證失敗時，工具會 log error，對應的 `tool_calls` row 會記下
+`error_message`，整體 agent run 會被標記為 `status="partial"`，**不會**靜默吞錯。
+
+**範例 request**
+```bash
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
+```
+
+**Response 200**
+```json
+{
+  "agent_run_id": "9c8f3b1a-0f4c-4f1d-9b65-1c0c3a86a512",
+  "status": "success",
+  "summary": {
+    "records_analyzed": 20,
+    "needs_review": 3,
+    "insights_created": 5,
+    "action_items_created": 4
+  }
+}
+```
+
+| 欄位 | 說明 |
+|---|---|
+| agent_run_id | 此次呼叫寫入 `agent_runs` 的 UUID |
+| status | `success`、`partial`（有 tool 驗證失敗）、或 `error`（orchestrator 層級失敗） |
+| summary.records_analyzed | 新建立的 `incident_analysis` row 數 |
+| summary.needs_review | `confidence < 0.65` 的紀錄數 |
+| summary.insights_created | 新建立的 `insights` row 數 |
+| summary.action_items_created | 新建立的 `action_items` row 數（全部 `status="open"`） |
+
+**可觀測性** — 每次請求會寫：
+- 1 筆 `agent_runs`（`task_type="analyze_incidents"`、`model_name`、`latency_ms`、`status`、`input_json` 含 record_count、`output_json` 含 summary 與工具清單）
+- 4 筆 `tool_calls`（每個工具一筆）：`tool_name`、各自的 `input_json` / `output_json`、`latency_ms`、JSON 驗證失敗時的 `error_message`
+
+事後追溯就靠這兩張表 — 詳見 [README 的 Observability 章節](../README.zh-TW.md#可觀測性與除錯)。
+
+**錯誤**
+- `400` — `{"detail": "No cleaned records to analyze..."}`（請先上傳 ticket，或全部 record 都已分析過）
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID
+- `500` — LLM provider 不可用或 orchestrator 層級失敗（同時會以 `status="error"` 寫入 `agent_runs`）
 
 ---
 
-## Agent Logs _(Step 5)_
+## Dashboard
 
-### `GET /logs/`
-列出 AI 執行日誌（含分頁）。
+### `GET /projects/{project_id}/dashboard`
 
-### `GET /logs/{id}`
-取得單筆執行日誌。
+專案層級的彙總摘要。純 PostgreSQL 聚合 — **不呼叫 LLM**，快速且可重現。
+設計用一次 round-trip 餵滿 Streamlit dashboard。
+
+**Path 參數**
+
+| 參數 | 型別 | 說明 |
+|---|---|---|
+| project_id | UUID | Project ID |
+
+**Query 參數**
+
+| 參數 | 型別 | 預設 | 範圍 | 說明 |
+|---|---|---|---|---|
+| insights_limit | integer | 5 | 1–50 | `top_insights` 回傳上限 |
+| action_items_limit | integer | 10 | 1–100 | `open_action_items` 回傳上限 |
+| agent_runs_limit | integer | 5 | 1–50 | `recent_agent_runs` 回傳上限 |
+
+**範例 request**
+```bash
+curl "http://localhost:8000/projects/${PROJECT_ID}/dashboard"
+```
+
+**Response 200**
+```json
+{
+  "project_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "ticket_count": 100,
+  "category_distribution": [
+    {"category": "network_issue", "count": 20},
+    {"category": "storage_issue", "count": 15}
+  ],
+  "severity_distribution": [
+    {"severity": 1, "count": 5},
+    {"severity": 3, "count": 30},
+    {"severity": 5, "count": 3}
+  ],
+  "needs_review_count": 4,
+  "top_insights": [
+    {
+      "id": "…",
+      "title": "Top category: network_issue",
+      "summary": "20 incident(s) classified as network_issue.",
+      "recommendation": "Investigate the root cause of network_issue incidents..."
+    }
+  ],
+  "open_action_items": [
+    {
+      "id": "…",
+      "title": "Action: High severity patterns",
+      "description": "Prioritise post-mortems...",
+      "priority": "high",
+      "owner_role": "ops_lead",
+      "status": "open"
+    }
+  ],
+  "recent_agent_runs": [
+    {
+      "id": "…",
+      "task_type": "analyze_incidents",
+      "model_name": "mock",
+      "status": "success",
+      "latency_ms": 142,
+      "created_at": "2026-05-30T10:00:00Z"
+    }
+  ]
+}
+```
+
+| 欄位 | 來源 | 說明 |
+|---|---|---|
+| ticket_count | `cleaned_records` | 本 project 已匯入的 ticket 數 |
+| category_distribution | `incident_analysis` GROUP BY category | 依數量 desc、再以類別名 asc 排序 |
+| severity_distribution | `incident_analysis` GROUP BY severity_score（cast 成 int） | 依 severity asc 排序 |
+| needs_review_count | `incident_analysis` WHERE needs_review = true | 低信心、需人工複核的紀錄數 |
+| top_insights | `insights` ORDER BY created_at DESC | 最新 insights，上限為 `insights_limit` |
+| open_action_items | `action_items` WHERE status='open' | 未處理行動項目，上限為 `action_items_limit` |
+| recent_agent_runs | `agent_runs` ORDER BY created_at DESC | 最近 agent runs（chat + analysis），上限為 `agent_runs_limit` |
+
+**錯誤**
+- `404` — `{"detail": "Project not found"}`
+- `422` — project_id 不是合法 UUID，或 query 參數超出範圍
+
+---
+
+## Observability（可觀測性）
+
+### `GET /projects/{project_id}/agent-runs`
+
+列出某個 project 的 agent runs（最新優先），供 UI 的「Agent 執行紀錄」頁面
+或臨時稽核使用。
+
+**Query 參數**
+
+| 參數 | 型別 | 預設 | 範圍 | 說明 |
+|---|---|---|---|---|
+| limit | integer | 50 | 1–200 | 分頁大小 |
+| offset | integer | 0 | ≥ 0 | 分頁 offset |
+
+**Response 200** — `list[AgentRunRead]`：
+```json
+[
+  {
+    "id": "…",
+    "project_id": "…",
+    "task_type": "analyze_incidents",
+    "model_name": "mock",
+    "input_json": {"project_id": "…", "record_count": 20},
+    "output_json": {"records_analyzed": 20, "tools_run": ["classify_incidents", "..."]},
+    "status": "success",
+    "latency_ms": 142,
+    "error_message": null,
+    "created_at": "2026-05-30T10:00:00Z",
+    "updated_at": "2026-05-30T10:00:00Z"
+  }
+]
+```
+
+**錯誤**
+- `404` — `{"detail": "Project not found"}`
+- `422` — 不合法 UUID 或分頁超範圍
+
+---
+
+### `GET /agent-runs/{agent_run_id}/tool-calls`
+
+列出單一 agent run 的 tool calls，**依執行順序**（依 `created_at` asc）。
+與 `/agent-runs` 搭配做 drill-down view。
+
+**Response 200** — `list[ToolCallRead]`：
+```json
+[
+  {
+    "id": "…",
+    "agent_run_id": "…",
+    "tool_name": "classify_incidents",
+    "input_json": {"project_id": "…", "record_count": 20},
+    "output_json": {"classified": 20, "failed": 0, "categories": {"network_issue": 8, "...": 4}},
+    "error_message": null,
+    "latency_ms": 38,
+    "created_at": "2026-05-30T10:00:00Z"
+  }
+]
+```
+
+**錯誤**
+- `404` — `{"detail": "Agent run not found"}`
+- `422` — 不合法 UUID

@@ -4,6 +4,26 @@ English | [繁體中文](README.zh-TW.md)
 
 An enterprise-style AI + Data Engineering POC for IT operations and system integration scenarios.
 
+## Language / 語言說明
+
+The **user interface** (Streamlit frontend) is written in **Traditional Chinese**
+because the target scenario is an internal enterprise tool for IT operations teams
+in Taiwan or Chinese-speaking environments.
+
+The **codebase, API paths, database schema, and technical documentation** remain in
+**English** to follow common engineering conventions and make the project easier to
+review internationally.
+
+| Layer | Language | Reason |
+|---|---|---|
+| Streamlit UI labels / buttons / messages | 繁體中文 | Target users are zh-TW IT-ops teams |
+| Code identifiers (functions / classes / variables) | English | Engineering convention |
+| FastAPI route paths and request / response field names | English | Backend contract stability |
+| Database column / table names | English | Schema portability |
+| Primary docs (`README.md`, `docs/*.md`) | English | International reviewability |
+| Mirror docs (`README.zh-TW.md`, `docs/*.zh-TW.md`) | 繁體中文 | Local-team onboarding |
+| Source comments and commit messages | 繁體中文 | Team preference (see CLAUDE.md Rule 13) |
+
 ## What It Does
 
 | Capability | Description |
@@ -33,9 +53,8 @@ cp .env.example .env
 
 # 2. (Optional) edit .env if you want real models
 #    - Set LLM_PROVIDER=openai and fill OPENAI_API_KEY for hosted OpenAI
-#    - Set LLM_PROVIDER=ollama and OLLAMA_BASE_URL=http://host.docker.internal:11434
-#      for a host-side Ollama (Docker Desktop only; on Linux use `--network host` or
-#      add `extra_hosts: ["host.docker.internal:host-gateway"]`)
+#    - Set LLM_PROVIDER=ollama for a host-side Ollama. Docker Compose overrides
+#      OLLAMA_BASE_URL with DOCKER_OLLAMA_BASE_URL (default: http://host.docker.internal:11434).
 
 # 3. Build and start the full stack (postgres, chromadb, backend, frontend)
 docker compose up --build
@@ -137,7 +156,7 @@ LLM_PROVIDER=mock
 ```
 
 ### What works in mock mode
-- All unit tests — 155 tests, zero external calls
+- Backend unit tests, zero external calls
 - `POST /projects/{id}/upload/documents` — PDF is parsed, chunked, stored in PostgreSQL;
   embeddings are generated locally and stored in ChromaDB (ChromaDB must be running)
 - `GET /projects/{id}/search` — vector search returns results using mock vectors
@@ -200,6 +219,8 @@ ollama pull qwen2.5:7b-instruct
 # 2. Point the app at Ollama (.env)
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
+# Docker Compose uses this inside the backend container.
+DOCKER_OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
 # Embeddings are independent — keep EMBEDDING_PROVIDER=mock (offline) or =openai
 EMBEDDING_PROVIDER=mock
@@ -240,7 +261,7 @@ PYTHONPATH=. python scripts/create_tables.py
 
 **Option B — Raw SQL (psql):**
 ```bash
-psql -h localhost -U opsuser -d opsknowledge -f migrations/001_initial_schema.sql
+psql -h localhost -U opsuser -d opsknowledge -f backend/migrations/001_initial_schema.sql
 ```
 
 **Option C — Docker Compose (automatic on backend start):**
@@ -559,7 +580,7 @@ How to use this trail when something looks wrong:
 | `chromadb` healthcheck never goes healthy | First boot can take 10-20s; on slow disks longer | Wait; if still red after 60s: `make logs-chromadb`. Persistent failure is usually a corrupted volume — `make clean` resets it |
 | Frontend shows `無法連線到後端 (http://backend:8000)` | Backend container is down or not yet healthy | `make ps` to check status; `make logs-backend` for the cause |
 | Chat / analysis returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
-| Ollama mode can't reach the server from container | Linux Docker doesn't auto-resolve `host.docker.internal` | Add `extra_hosts: ["host.docker.internal:host-gateway"]` under the `backend` service, or run Ollama inside the same compose network |
+| Ollama mode can't reach the server from container | Ollama is not running on the host, or you need a different container URL | Start `ollama serve` on the host, or set `DOCKER_OLLAMA_BASE_URL` for a different endpoint |
 | Tests fail with `ModuleNotFoundError` when running `make test-local` | Local `.venv` missing or stale | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
 | Postgres / Chroma data unexpectedly empty after restart | Someone ran `docker compose down -v` or `make clean` | Volumes were dropped on purpose — re-ingest. Use `make down` (without `-v`) to preserve data |
 | Windows / WSL2 path issues with bind mounts | Volume mounts use Linux paths | Run all commands from inside WSL2, not from PowerShell |

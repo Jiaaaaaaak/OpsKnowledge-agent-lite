@@ -150,6 +150,55 @@ Incident batch → LLM classify + score → AI results → PostgreSQL (incident_
 Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
 ```
 
+### 事件分析 Agent 工作流程
+
+```
+POST /projects/{id}/analyze/incidents
+  │
+  ├─ Project 404 防護
+  │
+  ├─ 載入 cleaned_records WHERE id NOT IN (既有 incident_analysis.record_id)
+  │    └─ Idempotent：已分析的紀錄會被跳過，不會被覆寫
+  │
+  ├─ 寫入一筆 AgentRun（id 預先產生）— task_type="analyze_incidents"
+  │
+  ├─ Tool 1：classify_incidents(records)
+  │    └─ 逐筆呼叫 LLMProvider.complete(<<AGENT_TASK:classify>>, record_json)
+  │         → ClassifyOutput Pydantic 驗證
+  │         → 寫一筆 ToolCall（tool_name="classify_incidents"、類別計數）
+  │
+  ├─ Tool 2：analyze_severity(records)
+  │    └─ 逐筆呼叫 LLMProvider.complete(<<AGENT_TASK:severity>>, record_json)
+  │         → SeverityOutput Pydantic 驗證（severity 1-5、sentiment -1..1、confidence 0..1）
+  │         → needs_review = confidence < 0.65
+  │         → 寫一筆 ToolCall（tool_name="analyze_severity"、needs_review 計數）
+  │
+  ├─ 將 tool 1 + tool 2 的結果寫入 IncidentAnalysis（依 record_id 配對）
+  │
+  ├─ Tool 3：generate_insights({category_counts, high_severity_samples, total})
+  │    └─ 呼叫 LLMProvider.complete(<<AGENT_TASK:insights>>, aggregation_json)
+  │         → InsightsOutput Pydantic 驗證
+  │         → Insight rows INSERT
+  │         → 寫一筆 ToolCall（tool_name="generate_insights"）
+  │
+  ├─ Tool 4：create_action_items(insights)
+  │    └─ 呼叫 LLMProvider.complete(<<AGENT_TASK:action_items>>, insights_json)
+  │         → ActionItemsOutput Pydantic 驗證
+  │         → ActionItem rows INSERT（status="open"）
+  │         → 寫一筆 ToolCall（tool_name="create_action_items"）
+  │
+  ├─ 更新 AgentRun（status、latency_ms、output_json={summary, tools_run}）
+  │    status = "success" | "partial"（有 tool 驗證失敗）| "error"（orchestrator 層級）
+  │
+  └─ 回傳 AnalyzeResponse  { agent_run_id, status, summary }
+
+安全屬性：
+- 無破壞性動作：既有 analysis row 不會被刪除（Rule 15）
+- 無外部副作用：不寄信、不打 Slack、除 LLM provider 之外無對外 HTTP
+- Mock 模式下確定性：MockLLMProvider 以 <<AGENT_TASK:xxx>> 標記分流
+- 驗證失敗會被明確呈現（Rule 12）：寫入 log + 記在 tool_calls.error_message
+```
+
 ## 連接埠對應
 
 | 服務 | 連接埠 |
