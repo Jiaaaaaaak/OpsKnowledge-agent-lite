@@ -124,6 +124,32 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 > 網路內執行、資料不離開主機。切換只需修改一行 `.env`（`LLM_PROVIDER`），不需更動
 > 任何應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
 
+### 從 mock 模式切換到 OpenAI
+
+系統預設以 **mock 模式**出貨。要接上真正的 OpenAI 相容 API：
+
+1. 在 `backend/.env` 設定 provider 與金鑰（model／base URL 已有預設值）：
+   ```bash
+   LLM_PROVIDER=openai
+   EMBEDDING_PROVIDER=openai
+   OPENAI_API_KEY=sk-...你的真實金鑰...
+   # 選填覆寫：
+   # OPENAI_BASE_URL=https://api.openai.com/v1
+   # LLM_MODEL=gpt-4o-mini
+   # EMBEDDING_MODEL=text-embedding-3-small
+   ```
+2. 在啟動應用程式**之前**，先驗證 provider 是否真的能呼叫：
+   ```bash
+   cd backend
+   python -m app.utils.verify_providers
+   ```
+   會印出目前 provider 名稱，送出一次短 LLM 請求與一次短 embedding 請求，
+   並回報 `PASS` / `FAIL`。它**絕不會印出 API 金鑰**（只顯示遮罩後的摘要），
+   失敗時以非 0 結束碼結束，可用於 CI；金鑰缺漏或無效時會回傳清楚的錯誤。
+
+> 切回 mock 模式同樣只需改一行（`LLM_PROVIDER=mock`、`EMBEDDING_PROVIDER=mock`），
+> 不涉及任何應用程式碼。
+
 ### 主機名稱：Docker vs 本機
 
 應用程式透過 `POSTGRES_HOST` / `CHROMA_HOST` 連線到 PostgreSQL 與 ChromaDB

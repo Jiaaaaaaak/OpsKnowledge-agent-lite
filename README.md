@@ -129,6 +129,33 @@ make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 > (`LLM_PROVIDER`); no application code changes. See
 > [Local model provider (Ollama)](#local-model-provider-ollama) below.
 
+### Switching from mock mode to OpenAI
+
+The system ships in **mock mode** by default. To connect a real OpenAI-compatible API:
+
+1. In `backend/.env`, set the provider and key (the model / base URL already have defaults):
+   ```bash
+   LLM_PROVIDER=openai
+   EMBEDDING_PROVIDER=openai
+   OPENAI_API_KEY=sk-...your-real-key...
+   # optional overrides:
+   # OPENAI_BASE_URL=https://api.openai.com/v1
+   # LLM_MODEL=gpt-4o-mini
+   # EMBEDDING_MODEL=text-embedding-3-small
+   ```
+2. Verify the providers actually work **before** running the app:
+   ```bash
+   cd backend
+   python -m app.utils.verify_providers
+   ```
+   This prints the current provider names, sends one short LLM request and one short
+   embedding request, and reports `PASS` / `FAIL`. It **never prints the API key**
+   (only a masked summary), and exits non-zero on failure so it can be used in CI.
+   If the key is missing or invalid it returns a clear error.
+
+> Switching back to mock mode is the reverse one-line change
+> (`LLM_PROVIDER=mock`, `EMBEDDING_PROVIDER=mock`); no application code is involved.
+
 ### Hostnames: Docker vs local
 
 The app connects to PostgreSQL and ChromaDB via `POSTGRES_HOST` / `CHROMA_HOST`
