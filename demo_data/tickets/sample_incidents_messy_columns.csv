@@ -1,0 +1,18 @@
+id,date,service,component,problem,fix,state,severity
+OPS-1001,2026/03/02,vpn-gateway,ipsec,"總部與分公司之間的 VPN tunnel 不穩定，連線經常 timeout 後中斷。","調整 IKE 重連參數並更新韌體，連線穩定。",closed,high
+OPS-1002,2026/03/03,nas-storage,volume,"NAS volume 即將 disk full，寫入大型檔案時失敗 error。","擴充容量並清理過期快照。",closed,high
+OPS-1003,2026/03/04,docker-host,deploy,"服務 docker deploy 後容器 health check failed，無法對外提供服務。","補齊缺漏的環境變數後重新部署。",closed,medium
+OPS-1004,2026/03/05,postgres,connection,"PostgreSQL 連線數爆滿，新連線 connection timeout 被拒絕。","調整連線池並關閉閒置連線。",closed,high
+OPS-1005,2026/03/06,firewall,acl,"firewall 規則誤擋內部 API 流量，呼叫端連線被 reset。","補上放行規則並驗證連通性。",closed,medium
+OPS-1006,2026/03/07,backup-server,job,"每日 backup job 失敗，NAS 掛載點無回應導致 error。","重新掛載並補跑備份。",closed,high
+OPS-1007,2026/03/08,internal-api,auth,"使用者呼叫 API 收到 403 access denied，權限設定疑似錯誤。","修正 RBAC 角色對應。",closed,medium
+OPS-1008,2026/03/09,postgres,query,"報表 slow query 拖垮資料庫，CPU 飆到接近滿載。","建立索引並優化查詢。",closed,high
+OPS-1009,2026/03/10,etl-pipeline,ingest,"匯入資料出現 null 與 duplicate，報表數字異常。","加上去重與驗證規則。",closed,medium
+OPS-1010,2026/03/11,security,ids,"偵測到對外服務的 brute force 登入嘗試，疑似 intrusion。","封鎖來源並啟用防護。",closed,critical
+OPS-1011,2026/03/12,vpn-gateway,capacity,"VPN 同時連線數達上限，使用者無法連線登入。",,open,high
+OPS-1012,2026/03/13,docker-host,disk,"docker host disk full，無法啟動新容器。","清理舊 image 與 log。",closed,high
+OPS-1013,2026/03/14,nas-storage,disk,"NAS 硬碟故障，RAID 進入 degraded 狀態。","更換硬碟並完成 rebuild。",closed,high
+OPS-1014,2026/03/15,postgres,outage,"主資料庫節點 down，寫入全面中斷 critical。","切換 standby 並 failover。",closed,critical
+OPS-1015,2026/03/16,internal-api,gateway,"API gateway 大量回傳 502 與 503，疑似後端過載。",,open,high
+OPS-1016,2026/03/17,backup-server,verify,"備份還原驗證發現資料 corruption，備份檔可能損毀。",,open,high
+OPS-1017,2026/03/18,vpn-gateway,dns,"VPN 連上後內部 DNS 解析失敗，無法存取內網服務。","修正 VPN DNS 推送設定。",closed,medium

@@ -1,0 +1,55 @@
+ticket_id,occurred_at,system,module,issue_description,resolution,status,priority
+INC-001,2026-03-02 09:14:00,vpn-gateway,ipsec,"分公司 VPN tunnel 在上班尖峰時段反覆斷線，使用者連線 timeout，無法存取內部系統。","重啟 IPsec 服務並調高 DPD timeout，觀察 24 小時無再斷線。",resolved,high
+INC-002,2026-03-02 11:40:00,nas-storage,volume,"NAS 主儲存 volume 使用率達 96%，備份任務寫入時 disk full 報錯。","清理過期快照並擴充 volume，使用率降至 71%。",resolved,high
+INC-003,2026-03-03 15:22:00,docker-host,deploy,"內部報表服務 docker deploy 後容器反覆 restart，health check failed。","修正 docker-compose 環境變數缺漏，重新 rollout 後恢復正常。",resolved,medium
+INC-004,2026-03-04 08:05:00,postgres,connection,"應用程式回報 PostgreSQL connection timeout，連線數達到 max_connections 上限。","調整連線池大小並釋放閒置 connection，恢復正常。",resolved,high
+INC-005,2026-03-04 19:48:00,firewall,acl,"新上線的 internal API 被 firewall ACL 擋下，呼叫端持續收到連線被 reset。","補上對應網段的 firewall rule 放行，並同步更新文件。",resolved,medium
+INC-006,2026-03-05 10:30:00,backup-server,job,"每日 backup job 凌晨執行失敗，log 顯示 NAS 掛載點無回應導致 error。","重新掛載 NFS share 並加上掛載健康檢查，手動補跑當日備份。",resolved,high
+INC-007,2026-03-05 14:12:00,internal-api,auth,"員工查詢 API 回報 403 access denied，無法讀取部門資料。","修正 RBAC role 對應錯誤，補上缺漏的 read permission。",resolved,medium
+INC-008,2026-03-06 23:55:00,postgres,query,"報表查詢 latency 飆高，單筆 slow query 超過 30 秒，CPU 使用率衝到 95%。","為高頻查詢欄位建立索引，slow query 降至 1 秒內。",resolved,high
+INC-009,2026-03-07 09:00:00,etl-pipeline,ingest,"匯入的客戶清單出現大量 null 與 duplicate 紀錄，下游報表數字對不上。","加上去重與必填欄位驗證，重新匯入後資料一致。",resolved,medium
+INC-010,2026-03-08 03:20:00,security,ids,"IDS 偵測到對外 SSH port 的 brute force 嘗試，來源為境外 IP。","封鎖來源網段並啟用 fail2ban，改用金鑰登入。",resolved,critical
+INC-011,2026-03-09 16:40:00,vpn-gateway,dns,"使用者連上 VPN 後內部域名無法解析，DNS 查詢 timeout。","修正 VPN 推送的 DNS server 設定，恢復內網解析。",resolved,medium
+INC-012,2026-03-10 11:05:00,docker-host,registry,"從私有 registry pull image 失敗，deploy pipeline 卡在 build 階段 error。","修復 registry 憑證過期問題並重新簽發，pipeline 恢復。",resolved,high
+INC-013,2026-03-11 13:33:00,nas-storage,permission,"共用資料夾權限異常，部分使用者寫入時 permission denied。","重設 ACL 並修正群組對應，恢復正常存取。",resolved,medium
+INC-014,2026-03-12 21:10:00,postgres,replication,"主從 replication lag 持續擴大，read replica 資料明顯落後。","排除長交易卡住 WAL 的問題，replication lag 回到正常。",resolved,high
+INC-015,2026-03-13 08:48:00,backup-server,verify,"每週備份還原演練發現備份檔 checksum 不符，疑似資料 corruption。","重建備份鏈並改用增量驗證，後續還原測試通過。",resolved,high
+INC-016,2026-03-14 10:15:00,internal-api,gateway,"API gateway 回傳大量 502 與 503，後端服務疑似過載 down。","水平擴充後端 pod 並調整 rate limit，錯誤率歸零。",resolved,critical
+INC-017,2026-03-15 17:25:00,firewall,vpn,"遠端廠商 VPN 連線需求待審核，目前無法存取維運跳板機。",,open,medium
+INC-018,2026-03-16 09:35:00,docker-host,resource,"單一 docker host memory 使用率長期偏高，容器偶發 OOM 被 kill。","設定容器 memory limit 並將部分服務遷移到其他節點。",resolved,medium
+INC-019,2026-03-17 14:50:00,postgres,backup,"pg_dump 自動備份檔案大小異常為 0，疑似 backup job 中途中斷。","修正磁碟空間不足導致的中斷，重設備份排程並監控。",resolved,high
+INC-020,2026-03-18 19:05:00,nas-storage,disk,"NAS 其中一顆硬碟 SMART 報警，RAID 進入 degraded 狀態。","更換故障硬碟並完成 RAID rebuild，陣列恢復正常。",resolved,high
+INC-021,2026-03-19 11:20:00,internal-api,data,"員工通訊錄 API 回傳的部門欄位出現 missing 與不一致值。","補齊來源資料對應並加上欄位驗證，資料恢復正確。",resolved,low
+INC-022,2026-03-20 08:00:00,vpn-gateway,capacity,"VPN 同時連線數逼近授權上限，新使用者連線被拒絕無法登入。",,open,high
+INC-023,2026-03-21 22:40:00,security,patch,"弱點掃描報告指出 internal API server 存在未修補的 CVE 高風險漏洞。",,open,critical
+INC-024,2026-03-22 13:15:00,docker-host,network,"跨容器網路偶發封包遺失，服務間呼叫 latency 不穩定。","重建 docker overlay network 並修正 MTU 設定，延遲恢復穩定。",resolved,medium
+INC-025,2026-03-23 09:55:00,backup-server,nas,"備份目標 NAS 空間不足，最新一次全量 backup 失敗 disk full。","清理舊備份並調整保留週期，補跑全量備份成功。",resolved,high
+INC-026,2026-03-24 16:30:00,postgres,lock,"批次作業期間出現大量 row lock 等待，前台交易明顯變慢 degraded。","拆分大批次交易並調整作業時段，鎖等待消失。",resolved,medium
+INC-027,2026-03-25 10:10:00,internal-api,deploy,"新版內部 API rollout 後相容性異常，舊版前端呼叫 broken。","回滾到前一版本並補上向後相容處理，再重新部署。",resolved,high
+INC-028,2026-03-26 14:05:00,firewall,rule,"防火牆規則調整後，monitoring 主機無法連到部分受監控節點。","修正過於嚴格的 firewall rule，補回 ICMP 與監控埠放行。",resolved,medium
+INC-029,2026-03-27 18:20:00,nas-storage,mount,"應用伺服器開機後 NAS 自動掛載失敗，服務讀取共用檔案 error。","修正 fstab 設定並加上掛載重試，開機掛載恢復。",resolved,medium
+INC-030,2026-03-28 08:45:00,vpn-gateway,cert,"VPN 伺服器憑證即將到期，需在到期前完成更新避免連線中斷。",,open,high
+INC-031,2026-03-29 12:00:00,etl-pipeline,quality,"上游 CSV 欄位順序變動導致匯入後欄位錯位，資料 invalid。","加上以欄名對應的解析方式，不再依賴欄位順序。",resolved,medium
+INC-032,2026-03-30 15:40:00,docker-host,disk,"docker host 因 image 與 log 堆積導致 disk full，無法啟動新容器。","清理 dangling image 與舊 log，加上定期清理排程。",resolved,high
+INC-033,2026-03-31 09:25:00,postgres,connection,"應用服務間歇性回報資料庫連線被中斷，疑似網路 timeout。",,open,medium
+INC-034,2026-04-01 11:50:00,internal-api,perf,"報表匯出 API 在大量資料時 memory 暴增，回應 latency 過高。","改為串流分頁輸出，記憶體使用與延遲大幅下降。",resolved,medium
+INC-035,2026-04-02 20:15:00,security,access,"離職員工帳號未即時停用，稽核發現仍可登入內部系統。","立即停用帳號並全面檢視離職流程的權限回收。",resolved,critical
+INC-036,2026-04-03 10:35:00,backup-server,schedule,"異地備份同步任務連續三天未執行，排程似乎被停用。","重新啟用 cron 排程並補上失敗告警通知。",resolved,high
+INC-037,2026-04-04 14:20:00,nas-storage,quota,"研發共用區 storage quota 用罄，使用者無法上傳新檔案。","調高研發區 quota 並通知清理大型暫存檔。",resolved,low
+INC-038,2026-04-05 08:10:00,vpn-gateway,routing,"特定分公司透過 VPN 無法連到 NAS，路由設定疑似缺漏。","補上對應網段的靜態路由，連線恢復。",resolved,medium
+INC-039,2026-04-06 17:00:00,docker-host,deploy,"CI 觸發的 deploy pipeline 在部署階段 failed，rollout 中止。","修正 Kubernetes manifest 的資源限制設定，重新部署成功。",resolved,high
+INC-040,2026-04-07 09:30:00,postgres,index,"資料量成長後常用查詢 latency 變慢，缺少適當索引。","新增複合索引並更新統計資訊，查詢效能恢復。",resolved,medium
+INC-041,2026-04-08 13:45:00,internal-api,auth,"OAuth token 驗證偶發失敗，部分請求被拒 401，原因待釐清。",,open,medium
+INC-042,2026-04-09 19:10:00,firewall,security,"防火牆 log 顯示有異常 port scan 行為，疑似外部探測 intrusion。","封鎖來源並加強對外開放埠的審查，持續觀察。",resolved,high
+INC-043,2026-04-10 10:00:00,backup-server,restore,"客戶要求還原三個月前的檔案，但對應 backup 版本疑似缺失。",,open,medium
+INC-044,2026-04-11 11:25:00,nas-storage,perf,"多人同時讀寫 NAS 時吞吐明顯下降，檔案開啟 slow。","啟用 SMB multichannel 並調整快取，讀寫效能改善。",resolved,low
+INC-045,2026-04-12 15:55:00,docker-host,registry,"私有 registry 磁碟空間不足，新 image push 失敗 error。","清理舊版 image tag 並設定 GC 排程，push 恢復正常。",resolved,medium
+INC-046,2026-04-13 08:20:00,postgres,outage,"主資料庫節點當機 down，所有寫入操作中斷，服務全面受影響。","切換到 standby 節點並完成 failover，事後檢討自動切換機制。",resolved,critical
+INC-047,2026-04-14 12:40:00,etl-pipeline,quality,"匯入的工單資料 ticket_id 出現重複，duplicate 導致統計重複計算。","在匯入階段加上唯一鍵檢查並去除重複紀錄。",resolved,medium
+INC-048,2026-04-15 16:05:00,vpn-gateway,client,"少數使用者的 VPN client 更新後無法建立連線，錯誤訊息不明確待釐清。",,open,low
+INC-049,2026-04-16 09:15:00,internal-api,gateway,"API 閘道在版本更新後對部分路由回傳 503，service 短暫 down。","修正反向代理設定的後端位址，503 消失。",resolved,high
+INC-050,2026-04-17 14:30:00,security,malware,"端點防護偵測到一台維運主機出現可疑 malware 連外行為。","隔離主機、清除惡意程式並重灌，全面掃描其他節點。",resolved,critical
+INC-051,2026-04-18 10:50:00,backup-server,verify,"月度備份驗證發現資料庫備份還原後資料不完整，疑似 corruption。",,open,high
+INC-052,2026-04-19 13:10:00,nas-storage,volume,"NAS 擴充新 volume 後，部分舊路徑連結失效造成應用讀檔 error。","更新應用設定指向新掛載路徑並建立相容軟連結。",resolved,medium
+INC-053,2026-04-20 08:35:00,docker-host,perf,"容器化服務在高峰期 CPU throttling 嚴重，回應時間明顯拉長 slow。","調高 CPU limit 並優化服務並行度，throttling 緩解。",resolved,medium
+INC-054,2026-04-21 17:45:00,postgres,permission,"新進工程師連線資料庫時 access denied，無法存取開發 schema。","補上對應 schema 的權限授權，並更新權限申請流程。",resolved,low

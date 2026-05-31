@@ -1,0 +1,102 @@
+[
+  {
+    "ticket_id": "JSON-001",
+    "occurred_at": "2026-05-01T09:10:00",
+    "system": "vpn-gateway",
+    "module": "ipsec",
+    "issue_description": "夜間維護後 VPN tunnel 無法重新建立，遠端使用者連線 timeout，全部分公司受影響 down。",
+    "resolution": "重啟 VPN 服務並重新協商 SA，連線恢復後加上自動健康檢查。",
+    "status": "resolved",
+    "priority": "critical"
+  },
+  {
+    "ticket_id": "JSON-002",
+    "occurred_at": "2026-05-02T11:30:00",
+    "system": "nas-storage",
+    "module": "volume",
+    "issue_description": "NAS 主 volume 使用率超過 90%，導致應用寫入暫存檔 disk full error。",
+    "resolution": "清理過期資料並擴充 volume，使用率回到安全水位。",
+    "status": "resolved",
+    "priority": "high"
+  },
+  {
+    "ticket_id": "JSON-003",
+    "occurred_at": "2026-05-03T14:05:00",
+    "system": "postgres",
+    "module": "query",
+    "issue_description": "月結期間報表 slow query 大量堆積，資料庫 CPU 與 latency 飆高，前台明顯變慢。",
+    "resolution": "為熱點查詢建立索引並調整批次時段，效能恢復。",
+    "status": "resolved",
+    "priority": "high"
+  },
+  {
+    "ticket_id": "JSON-004",
+    "occurred_at": "2026-05-04T08:45:00",
+    "system": "docker-host",
+    "module": "deploy",
+    "issue_description": "新版內部服務 docker rollout 後容器反覆 restart，deploy pipeline 標記 failed。",
+    "resolution": "修正映像檔啟動指令與環境變數，重新部署成功。",
+    "status": "resolved",
+    "priority": "medium"
+  },
+  {
+    "ticket_id": "JSON-005",
+    "occurred_at": "2026-05-05T16:20:00",
+    "system": "backup-server",
+    "module": "job",
+    "issue_description": "排程的全量 backup job 連續兩晚失敗，log 顯示目標 NAS 連線中斷 error。",
+    "resolution": "修復網路掛載並補跑備份，加上失敗即時告警。",
+    "status": "resolved",
+    "priority": "high"
+  },
+  {
+    "ticket_id": "JSON-006",
+    "occurred_at": "2026-05-06T10:00:00",
+    "system": "firewall",
+    "module": "rule",
+    "issue_description": "防火牆規則更新後，internal API 對外整合端點被擋，呼叫端連線逾時 timeout。",
+    "resolution": "修正放行網段並回歸測試，整合恢復。",
+    "status": "resolved",
+    "priority": "medium"
+  },
+  {
+    "ticket_id": "JSON-007",
+    "occurred_at": "2026-05-07T13:15:00",
+    "system": "security",
+    "module": "vulnerability",
+    "issue_description": "弱點掃描在維運主機發現高風險 CVE 漏洞，尚未完成修補，存在被攻擊風險。",
+    "resolution": null,
+    "status": "open",
+    "priority": "critical"
+  },
+  {
+    "ticket_id": "JSON-008",
+    "occurred_at": "2026-05-08T09:40:00",
+    "system": "internal-api",
+    "module": "auth",
+    "issue_description": "部分使用者呼叫 API 收到 403 access denied，疑似權限群組設定有誤待釐清。",
+    "resolution": null,
+    "status": "open",
+    "priority": "medium"
+  },
+  {
+    "ticket_id": "JSON-009",
+    "occurred_at": "2026-05-09T18:55:00",
+    "system": "etl-pipeline",
+    "module": "quality",
+    "issue_description": "上游檔案匯入後出現 null 欄位與 duplicate 紀錄，下游統計數字明顯異常。",
+    "resolution": "加上欄位驗證與去重邏輯，重新匯入後資料一致。",
+    "status": "resolved",
+    "priority": "medium"
+  },
+  {
+    "ticket_id": "JSON-010",
+    "occurred_at": "2026-05-10T12:25:00",
+    "system": "postgres",
+    "module": "connection",
+    "issue_description": "應用服務間歇回報資料庫 connection 被中斷，原因疑似網路抖動，仍在觀察。",
+    "resolution": null,
+    "status": "open",
+    "priority": "high"
+  }
+]

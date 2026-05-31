@@ -38,3 +38,6 @@ Thumbs.db
 demo_data/documents/*.pdf
 demo_data/tickets/*.csv
 demo_data/tickets/*.xlsx
+# 但保留示範用的小型 CSV（ETL / 欄位正規化展示）
+!demo_data/tickets/sample_incidents.csv
+!demo_data/tickets/sample_incidents_messy_columns.csv
