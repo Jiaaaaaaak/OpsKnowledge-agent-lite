@@ -61,6 +61,11 @@ services:
       POSTGRES_HOST: postgres
       CHROMA_HOST: chromadb
       CHROMA_PORT: 8000
+      # Inside Docker, localhost points at the backend container, not the host.
+      # Use DOCKER_OLLAMA_BASE_URL to override for containerized Ollama.
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

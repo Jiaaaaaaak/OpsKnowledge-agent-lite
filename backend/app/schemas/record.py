@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class RawRecordCreate(BaseModel):
@@ -30,11 +30,14 @@ class CleanedRecordCreate(BaseModel):
     resolution: str | None = None
     status: str
     priority: str
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("metadata", "metadata_"),
+    )
 
 
 class CleanedRecordRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: UUID
     project_id: UUID
@@ -46,5 +49,9 @@ class CleanedRecordRead(BaseModel):
     resolution: str | None
     status: str
     priority: str
+    metadata: dict = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("metadata_", "metadata"),
+    )
     created_at: datetime
     updated_at: datetime
