@@ -5,6 +5,13 @@ import re
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
+from app.services.ai_tasks import (
+    AGENT_TASK_ACTION_ITEMS,
+    AGENT_TASK_CLASSIFY,
+    AGENT_TASK_INSIGHTS,
+    AGENT_TASK_SEVERITY,
+    agent_task_marker,
+)
 
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a technical support assistant for IT operations.
@@ -153,13 +160,13 @@ class MockLLMProvider(LLMProvider):
         # Agent 任務：在 system prompt 加上 <<AGENT_TASK:xxx>> 標記，回傳確定性 JSON，
         # 讓 4 個 incident analysis tools 在 mock 模式下也能跑完整流程
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "mock": True}
-        if "<<AGENT_TASK:classify>>" in system_prompt:
+        if agent_task_marker(AGENT_TASK_CLASSIFY) in system_prompt:
             return self._mock_classify(user_message), usage
-        if "<<AGENT_TASK:severity>>" in system_prompt:
+        if agent_task_marker(AGENT_TASK_SEVERITY) in system_prompt:
             return self._mock_severity(user_message), usage
-        if "<<AGENT_TASK:insights>>" in system_prompt:
+        if agent_task_marker(AGENT_TASK_INSIGHTS) in system_prompt:
             return self._mock_insights(user_message), usage
-        if "<<AGENT_TASK:action_items>>" in system_prompt:
+        if agent_task_marker(AGENT_TASK_ACTION_ITEMS) in system_prompt:
             return self._mock_action_items(user_message), usage
 
         if "(no context retrieved)" in system_prompt:

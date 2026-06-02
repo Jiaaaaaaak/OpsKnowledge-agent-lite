@@ -22,6 +22,13 @@ from sqlalchemy.orm import Session
 
 from app.models.agent import ToolCall
 from app.models.record import CleanedRecord
+from app.services.ai_tasks import (
+    AGENT_TASK_ACTION_ITEMS,
+    AGENT_TASK_CLASSIFY,
+    AGENT_TASK_INSIGHTS,
+    AGENT_TASK_SEVERITY,
+    agent_task_marker,
+)
 from app.services.llm_service import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -120,7 +127,7 @@ def _complete_structured(
 # ── Prompts（內含 <<AGENT_TASK:xxx>> 標記讓 MockLLMProvider 走確定性分支）──
 
 _CLASSIFY_SYSTEM = (
-    "<<AGENT_TASK:classify>>\n"
+    f"{agent_task_marker(AGENT_TASK_CLASSIFY)}\n"
     "You are an IT operations incident classifier. Read the incident and choose ONE category from:\n"
     "network_issue, storage_issue, deployment_issue, permission_issue, security_issue, "
     "performance_issue, data_quality_issue, unknown.\n\n"
@@ -129,7 +136,7 @@ _CLASSIFY_SYSTEM = (
 )
 
 _SEVERITY_SYSTEM = (
-    "<<AGENT_TASK:severity>>\n"
+    f"{agent_task_marker(AGENT_TASK_SEVERITY)}\n"
     "You are an IT operations severity analyst. For the given incident, output:\n"
     "- severity_score: integer 1..5\n"
     "- sentiment_score: float -1.0..1.0\n"
@@ -140,7 +147,7 @@ _SEVERITY_SYSTEM = (
 )
 
 _INSIGHTS_SYSTEM = (
-    "<<AGENT_TASK:insights>>\n"
+    f"{agent_task_marker(AGENT_TASK_INSIGHTS)}\n"
     "You are an IT operations analyst. The user message contains category counts and high-severity "
     "ticket samples for a project. Generate project-level insights covering: top categories, "
     "recurring issues, high severity patterns, and operational risks.\n\n"
@@ -149,7 +156,7 @@ _INSIGHTS_SYSTEM = (
 )
 
 _ACTION_ITEMS_SYSTEM = (
-    "<<AGENT_TASK:action_items>>\n"
+    f"{agent_task_marker(AGENT_TASK_ACTION_ITEMS)}\n"
     "You are an IT operations planner. The user message contains a list of insights. Generate "
     "concrete action items derived from those insights.\n\n"
     "Reply with ONLY a JSON object:\n"
