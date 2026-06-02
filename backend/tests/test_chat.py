@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.db.session import get_db
 from app.main import app
+from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.llm_service import build_rag_prompt, format_citations
 
 _NOW = datetime.now(timezone.utc)
@@ -207,8 +208,8 @@ def test_chat_returns_answer_and_citations(client: TestClient) -> None:
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
+    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
@@ -236,7 +237,7 @@ def test_chat_returns_answer_and_citations(client: TestClient) -> None:
 
 
 def test_chat_writes_agent_run_and_tool_call() -> None:
-    from app.api.chat import chat
+    from app.services.chat_service import run_rag_chat
     from app.models.agent import AgentRun, ToolCall
     from app.schemas.chat import ChatRequest
 
@@ -244,15 +245,15 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
 
-    with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
+    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
             {"prompt_tokens": 120, "completion_tokens": 20},
         )
 
-        response = chat(
+        response = run_rag_chat(
             project_id,
             ChatRequest(question="What should I check?", top_k=5),
             db,
@@ -271,6 +272,22 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     assert tool_call.tool_name == "vector_search"
     assert tool_call.output_json["chunk_ids"] == ["c1"]
     db.commit.assert_called_once()
+
+
+def test_chat_route_delegates_to_service(client: TestClient) -> None:
+    from app.api.chat import chat
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+
+    with patch("app.api.chat.run_rag_chat") as mock_service:
+        mock_service.return_value = ChatResponse(answer="service answer", citations=[])
+
+        response = chat(project_id, ChatRequest(question="What should I check?", top_k=5), db)
+
+    assert response.answer == "service answer"
+    assert response.citations == []
+    mock_service.assert_called_once_with(project_id, ChatRequest(question="What should I check?", top_k=5), db)
 
 
 def test_chat_project_not_found_returns_404(client: TestClient) -> None:
@@ -294,8 +311,8 @@ def test_chat_no_hits_returns_answer_without_citations(client: TestClient) -> No
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
+    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = []
         mock_llm_cls.return_value.complete.return_value = (
             "The document does not contain enough information to answer this question.",
@@ -317,8 +334,8 @@ def test_chat_llm_error_returns_500(client: TestClient) -> None:
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.api.chat.get_vector_store") as mock_vs, \
-         patch("app.api.chat.get_llm_provider") as mock_llm_cls:
+    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
         mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
         mock_llm_cls.return_value.complete.side_effect = RuntimeError("API quota exceeded")
 
