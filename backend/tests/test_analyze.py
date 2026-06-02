@@ -25,6 +25,8 @@ from app.db.session import get_db
 from app.main import app
 from app.models.agent import AgentRun, ToolCall
 from app.models.analysis import ActionItem, IncidentAnalysis, Insight
+from app.services.analysis_constants import ACTION_ITEM_STATUS_OPEN
+from app.services.analysis_service import AnalyzeResponse, AnalyzeSummary
 from app.services.llm_service import MockLLMProvider
 from app.tools.incident_analysis import (
     ActionItemsOutput,
@@ -369,10 +371,10 @@ def test_analyze_endpoint_happy_path(client):
         yield db
 
     app.dependency_overrides[get_db] = _override
-    with patch("app.api.analyze.settings") as mock_settings:
+    with patch("app.services.analysis_service.settings") as mock_settings:
         mock_settings.llm_provider = "mock"
         mock_settings.llm_model = "gpt-4o-mini"
-        with patch("app.api.analyze.get_llm_provider", return_value=MockLLMProvider()):
+        with patch("app.services.analysis_service.get_llm_provider", return_value=MockLLMProvider()):
             response = client.post(f"/projects/{project_id}/analyze/incidents")
 
     assert response.status_code == 200, response.text
@@ -402,11 +404,35 @@ def test_analyze_endpoint_happy_path(client):
         "create_action_items",
     ]
 
-    # action items 必須是 status="open"
+    # action items 必須使用集中定義的 open status
     for item in (o for o in added if isinstance(o, ActionItem)):
-        assert item.status == "open"
+        assert item.status == ACTION_ITEM_STATUS_OPEN
 
     db.commit.assert_called_once()
+
+
+def test_analyze_route_delegates_to_service(client):
+    from app.api.analyze import analyze_incidents
+
+    project_id = uuid.uuid4()
+    db = _setup_db_mock(_FakeProject(project_id), records=[], analyzed_ids=set())
+
+    with patch("app.api.analyze.run_incident_analysis") as mock_service:
+        mock_service.return_value = AnalyzeResponse(
+            agent_run_id=uuid.uuid4(),
+            status="success",
+            summary=AnalyzeSummary(
+                records_analyzed=1,
+                needs_review=0,
+                insights_created=1,
+                action_items_created=1,
+            ),
+        )
+
+        response = analyze_incidents(project_id, db)
+
+    assert response.status == "success"
+    mock_service.assert_called_once_with(project_id, db)
 
 
 def test_analyze_endpoint_returns_404_when_project_missing(client):
