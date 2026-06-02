@@ -25,6 +25,9 @@ chroma_data/
 # Runtime uploads
 backend/data/uploads/
 
+# Node.js
+node_modules/
+
 # IDE
 .idea/
 .vscode/
