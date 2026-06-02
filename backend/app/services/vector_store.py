@@ -68,6 +68,12 @@ class VectorStoreService:
         )
         return len(chunks)
 
+    def delete_chunks(self, chunk_ids: list[str]) -> None:
+        """刪除指定 chunk ids；供跨儲存寫入失敗時做補償清理."""
+        if not chunk_ids:
+            return
+        self._collection.delete(ids=chunk_ids)
+
     def search(self, project_id: str, query: str, top_k: int = 5) -> list[dict]:
         """在指定專案範圍內做相似度搜尋，回傳 top_k 個 chunk（含 metadata 與分數）."""
         query_embedding = self._embedder.embed([query])[0]

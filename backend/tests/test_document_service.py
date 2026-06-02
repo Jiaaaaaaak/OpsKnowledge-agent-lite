@@ -281,3 +281,20 @@ class TestIngestWithVectorStore:
         # metadata 必帶 project_id，且 embedding 須在 commit 之前完成
         assert all(p.project_id == str(project_id) for p in payloads)
         assert call_order == ["embed", "commit"]
+
+    @patch("app.services.document_service.PdfReader")
+    def test_commit_failure_removes_vector_chunks(self, mock_reader_cls):
+        mock_reader_cls.return_value.pages = [self._make_mock_page("A " * 600)]
+
+        mock_db = MagicMock()
+        mock_db.commit.side_effect = RuntimeError("database commit failed")
+
+        vector_store = MagicMock()
+
+        with patch.object(DocumentIngestionService, "_save_file", return_value=Path("x")):
+            svc = DocumentIngestionService(vector_store=vector_store)
+            with pytest.raises(RuntimeError, match="database commit failed"):
+                svc.ingest(mock_db, uuid4(), "doc.pdf", b"fake")
+
+        payloads = vector_store.add_chunks.call_args.args[0]
+        vector_store.delete_chunks.assert_called_once_with([p.chunk_id for p in payloads])

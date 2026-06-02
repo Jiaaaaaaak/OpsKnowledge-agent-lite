@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -10,6 +11,8 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.services.vector_store import VectorStoreService
@@ -136,10 +139,21 @@ class DocumentIngestionService:
                 chunk_index += 1
 
         # 先 embed 並寫入 ChromaDB，成功後才 commit；embedding 失敗則不留下半套資料。
+        vector_chunk_ids: list[str] = []
         if self._vector_store is not None:
             self._vector_store.add_chunks(payloads)
+            vector_chunk_ids = [p.chunk_id for p in payloads]
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            if self._vector_store is not None and vector_chunk_ids:
+                try:
+                    self._vector_store.delete_chunks(vector_chunk_ids)
+                except Exception:
+                    logger.exception("failed to delete ChromaDB chunks after PostgreSQL commit failure")
+            raise
 
         return DocumentIngestionResult(
             document_id=doc.id,
