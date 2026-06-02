@@ -6,7 +6,7 @@
 
 ```mermaid
 graph TD
-    subgraph Frontend["Frontend (Streamlit :8501)"]
+    subgraph Frontend["Frontend (React :8501)"]
         UI_Upload[Upload Page]
         UI_Chat[Chat / Q&A Page]
         UI_Dashboard[Dashboard Page]
@@ -204,7 +204,7 @@ POST /projects/{id}/analyze/incidents
 | 服務 | 連接埠 |
 |---|---|
 | FastAPI 後端 | 8000 |
-| Streamlit 前端 | 8501 |
+| React 前端（Vite + TypeScript + Tailwind） | 8501 |
 | PostgreSQL | 5432 |
 | ChromaDB | 8001 |
 

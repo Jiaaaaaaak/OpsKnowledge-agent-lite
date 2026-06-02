@@ -31,7 +31,7 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 - [x] AI severity scoring (P1–P4)
 - [x] AI insight generation and action item suggestions
 - [x] Logging of every AI call to PostgreSQL (model, tokens, latency, result)
-- [x] Streamlit dashboard: Upload / Chat / Dashboard / Agent Logs
+- [x] React dashboard: Upload / Chat / Dashboard / Agent Logs
 - [x] Docker Compose deployment (PostgreSQL, ChromaDB, backend, frontend)
 
 ### Out of Scope (for this POC)

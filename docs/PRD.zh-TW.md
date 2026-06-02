@@ -31,7 +31,7 @@ IT／維運團隊需管理大量技術文件（手冊、SOP）與事件記錄（
 - [x] AI 嚴重度評分（P1–P4）
 - [x] AI 洞察產生與行動項目建議
 - [x] 將每次 AI 呼叫記錄至 PostgreSQL（模型、tokens、延遲、結果）
-- [x] Streamlit 儀表板：Upload / Chat / Dashboard / Agent Logs
+- [x] React 儀表板：Upload / Chat / Dashboard / Agent Logs
 - [x] Docker Compose 部署（PostgreSQL、ChromaDB、backend、frontend）
 
 ### 不在範圍內（此 POC）

@@ -6,7 +6,7 @@ English | [繁體中文](ARCHITECTURE.zh-TW.md)
 
 ```mermaid
 graph TD
-    subgraph Frontend["Frontend (Streamlit :8501)"]
+    subgraph Frontend["Frontend (React :8501)"]
         UI_Upload[Upload Page]
         UI_Chat[Chat / Q&A Page]
         UI_Dashboard[Dashboard Page]
@@ -204,7 +204,7 @@ Safety properties:
 | Service | Port |
 |---|---|
 | FastAPI backend | 8000 |
-| Streamlit frontend | 8501 |
+| React frontend (Vite + TypeScript + Tailwind) | 8501 |
 | PostgreSQL | 5432 |
 | ChromaDB | 8001 |
 

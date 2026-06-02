@@ -462,7 +462,7 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
 ### `GET /projects/{project_id}/dashboard`
 
 專案層級的彙總摘要。純 PostgreSQL 聚合 — **不呼叫 LLM**，快速且可重現。
-設計用一次 round-trip 餵滿 Streamlit dashboard。
+設計用一次 round-trip 餵滿 React 前端儀表板。
 
 **Path 參數**
 

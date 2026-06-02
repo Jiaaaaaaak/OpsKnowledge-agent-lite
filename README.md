@@ -6,7 +6,7 @@ An enterprise-style AI + Data Engineering POC for IT operations and system integ
 
 ## Language / 語言說明
 
-The **user interface** (Streamlit frontend) is written in **Traditional Chinese**
+The **user interface** (React frontend) is written in **Traditional Chinese**
 because the target scenario is an internal enterprise tool for IT operations teams
 in Taiwan or Chinese-speaking environments.
 
@@ -16,7 +16,7 @@ review internationally.
 
 | Layer | Language | Reason |
 |---|---|---|
-| Streamlit UI labels / buttons / messages | 繁體中文 | Target users are zh-TW IT-ops teams |
+| React UI labels / buttons / messages | 繁體中文 | Target users are zh-TW IT-ops teams |
 | Code identifiers (functions / classes / variables) | English | Engineering convention |
 | FastAPI route paths and request / response field names | English | Backend contract stability |
 | Database column / table names | English | Schema portability |
@@ -32,7 +32,7 @@ review internationally.
 | Incident ETL | Upload CSV/Excel/JSON tickets → normalize, clean, store in PostgreSQL |
 | AI Analysis | Classify incidents, score severity, generate insights and action items |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
-| Dashboard | Streamlit UI for uploads, Q&A, analysis, and agent logs |
+| Dashboard | React UI for uploads, Q&A, analysis, and agent logs |
 
 ## Tech Stack
 
@@ -40,7 +40,7 @@ review internationally.
 - **Database**: PostgreSQL 16
 - **Vector DB**: ChromaDB
 - **AI**: OpenAI-compatible (swappable to Ollama)
-- **Frontend**: Streamlit
+- **Frontend**: React (Vite + TypeScript + Tailwind CSS)
 - **Infra**: Docker Compose
 
 ## Quick Start (Docker Compose)
@@ -62,7 +62,7 @@ docker compose up --build
 make up
 
 # 4. Open the UI
-#    Frontend (Streamlit): http://localhost:8501
+#    Frontend (React):     http://localhost:8501
 #    Backend docs:          http://localhost:8000/docs
 #    Backend health:        http://localhost:8000/health
 ```
@@ -81,7 +81,7 @@ make clean              # asks for confirmation
 
 | Service | Host port | Container port | Image / build |
 |---|---|---|---|
-| frontend (Streamlit) | **8501** | 8501 | built from `frontend/Dockerfile` |
+| frontend (React) | **8501** | 8501 | built from `frontend/Dockerfile` |
 | backend (FastAPI) | **8000** | 8000 | built from `backend/Dockerfile` |
 | postgres | **5432** | 5432 | `postgres:16-alpine` |
 | chromadb | **8001** | 8000 | `chromadb/chroma:0.5.23` (host 8001 to avoid clashing with backend) |
@@ -322,7 +322,7 @@ opsknowledge-agent-lite/
       db/            DB session, migrations
       utils/         Shared helpers
     tests/
-  frontend/          Streamlit UI
+  frontend/          React UI (Vite + TypeScript + Tailwind CSS)
   docs/              Architecture, PRD, data model, API docs
   demo_data/         Sample tickets and PDFs for demos
   docker-compose.yml
@@ -497,21 +497,24 @@ Pydantic; validation failures are recorded rather than silently dropped. The end
 is idempotent — re-running it skips records already in `incident_analysis`. Full API
 reference: [docs/API.md](docs/API.md#incident-analysis-agent).
 
-## Frontend (Streamlit)
+## Frontend (React)
 
-The Streamlit UI is the recommended way to drive the full demo. It mirrors the
+The React UI is the recommended way to drive the full demo. It mirrors the
 backend API surface and is what an interviewer or stakeholder will actually see.
+
+**Stack:** Vite + React 18 + TypeScript + Tailwind CSS + React Router v7
 
 ### Pages
 
-| Page | Purpose |
-|---|---|
-| Project Setup | Create or select the active project (kept in session state) |
-| Upload | Upload PDFs (RAG corpus) and incident tickets (ETL → cleaned_records) |
-| Knowledge Chat | RAG Q&A — answer + citations (filename, chunk index, snippet) |
-| Incident Analysis | One-click "Run Incident Analysis" — fires the 4-tool agent and shows the summary |
-| Dashboard | ticket count, category / severity distribution charts, top insights, open action items, recent agent runs |
-| Agent Logs | Browse `agent_runs`; select a row to drill into its `tool_calls` (input / output / errors / latency per tool) |
+| Page | Route | Purpose |
+|---|---|---|
+| Project Setup | `/projects` | Create or select the active project (kept in React context) |
+| Documents | `/documents` | Upload PDFs (RAG corpus); view uploaded documents |
+| Knowledge Chat | `/chat` | RAG Q&A — answer + citations (filename, chunk index, snippet) |
+| Incident Analysis | `/analysis` | One-click "Run Incident Analysis" — fires the 4-tool agent and shows the summary |
+| Dashboard | `/dashboard` | Ticket count, category / severity distribution charts, top insights, open action items, recent agent runs |
+| Agent Logs | `/agent-runs` | Browse `agent_runs`; select a row to drill into its `tool_calls` (input / output / errors / latency per tool) |
+| System Status | `/status` | Backend health and service connectivity |
 
 ### Run with Docker (preferred for demo)
 ```bash
@@ -520,19 +523,17 @@ docker compose up --build
 # Backend: http://localhost:8000
 ```
 `BACKEND_URL=http://backend:8000` is injected by `docker-compose.yml`, so the
-Streamlit container reaches the backend over the compose network.
+React container reaches the backend over the compose network.
 
 ### Run locally (no Docker)
 ```bash
 # Start the backend first (see Local Development above), then:
 cd frontend
-pip install -r requirements.txt
-BACKEND_URL=http://localhost:8000 streamlit run streamlit_app.py
-# UI: http://localhost:8501
+npm install
+BACKEND_URL=http://localhost:8000 npm run dev
+# UI: http://localhost:5173  (dev server)
+# or: npm run preview        (production preview on :8501)
 ```
-
-`BACKEND_URL` defaults to `http://localhost:8000` if unset. All HTTP errors are
-caught and surfaced via `st.error()` — the UI never shows a Python traceback.
 
 ## Demo Flow (end-to-end, mock mode)
 
@@ -625,6 +626,6 @@ How to use this trail when something looks wrong:
 - [x] Prompt 7: RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
 - [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows
 - [x] Step 4: Incident analysis agent (`POST /projects/{id}/analyze/incidents` — 4 tools, structured JSON, Pydantic validation, full agent_runs/tool_calls trail)
-- [ ] Step 6: Streamlit dashboard (complete)
+- [x] Step 6: React dashboard (Vite + TypeScript + Tailwind CSS)
 - [x] Local model provider (Ollama) — native HTTP LLM provider for private / on-premise deployment
 - [ ] Step 8+: Local embedding provider, additional agent tools

@@ -466,7 +466,7 @@ Use these tables to trace any analysis after the fact — see the [debugging sec
 ### `GET /projects/{project_id}/dashboard`
 
 Aggregated project-level summary. Pure PostgreSQL aggregation — **no LLM call**, fast
-and deterministic. Designed to drive the Streamlit dashboard in a single round-trip.
+and deterministic. Designed to drive the React frontend dashboard in a single round-trip.
 
 **Path Parameter**
 
