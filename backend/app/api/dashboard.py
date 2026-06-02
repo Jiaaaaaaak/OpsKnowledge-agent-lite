@@ -29,6 +29,7 @@ from app.models.analysis import ActionItem, IncidentAnalysis, Insight
 from app.models.project import Project
 from app.models.record import CleanedRecord
 from app.schemas.agent import AgentRunRead, ToolCallRead
+from app.services.analysis_constants import ACTION_ITEM_STATUS_OPEN
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -166,7 +167,7 @@ def get_dashboard(
 
     open_action_items_rows = (
         db.query(ActionItem)
-        .filter(ActionItem.project_id == project_id, ActionItem.status == "open")
+        .filter(ActionItem.project_id == project_id, ActionItem.status == ACTION_ITEM_STATUS_OPEN)
         .order_by(ActionItem.created_at.desc())
         .limit(action_items_limit)
         .all()
