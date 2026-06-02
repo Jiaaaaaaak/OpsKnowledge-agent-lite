@@ -1,12 +1,14 @@
-FROM python:3.12-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY package.json package-lock.json* ./
+# Use --include=optional to ensure Rolldown's native bindings are installed
+RUN npm ci --include=optional
 
 COPY . .
+RUN npm run build
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8501"]
