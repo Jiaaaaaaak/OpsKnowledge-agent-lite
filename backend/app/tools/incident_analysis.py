@@ -131,8 +131,8 @@ _CLASSIFY_SYSTEM = (
     "You are an IT operations incident classifier. Read the incident and choose ONE category from:\n"
     "network_issue, storage_issue, deployment_issue, permission_issue, security_issue, "
     "performance_issue, data_quality_issue, unknown.\n\n"
-    "Reply with ONLY a JSON object:\n"
-    '{"category": "<one of the labels>", "reason": "<short reason>"}'
+    "Reply with ONLY a JSON object. The 'reason' field MUST be written in Traditional Chinese (繁體中文):\n"
+    '{"category": "<one of the labels>", "reason": "<簡短原因，使用繁體中文>"}'
 )
 
 _SEVERITY_SYSTEM = (
@@ -142,8 +142,8 @@ _SEVERITY_SYSTEM = (
     "- sentiment_score: float -1.0..1.0\n"
     "- confidence: float 0.0..1.0\n"
     "- reason: short justification\n\n"
-    "Reply with ONLY a JSON object:\n"
-    '{"severity_score": <int>, "sentiment_score": <float>, "confidence": <float>, "reason": "<short>"}'
+    "Reply with ONLY a JSON object. The 'reason' field MUST be written in Traditional Chinese (繁體中文):\n"
+    '{"severity_score": <int>, "sentiment_score": <float>, "confidence": <float>, "reason": "<簡短說明，使用繁體中文>"}'
 )
 
 _INSIGHTS_SYSTEM = (
@@ -151,7 +151,8 @@ _INSIGHTS_SYSTEM = (
     "You are an IT operations analyst. The user message contains category counts and high-severity "
     "ticket samples for a project. Generate project-level insights covering: top categories, "
     "recurring issues, high severity patterns, and operational risks.\n\n"
-    "Reply with ONLY a JSON object:\n"
+    "Reply with ONLY a JSON object. ALL text fields (title, summary, recommendation) MUST be written "
+    "in Traditional Chinese (繁體中文):\n"
     '{"insights": [{"title": "...", "summary": "...", "evidence": [...], "recommendation": "..."}]}'
 )
 
@@ -159,7 +160,8 @@ _ACTION_ITEMS_SYSTEM = (
     f"{agent_task_marker(AGENT_TASK_ACTION_ITEMS)}\n"
     "You are an IT operations planner. The user message contains a list of insights. Generate "
     "concrete action items derived from those insights.\n\n"
-    "Reply with ONLY a JSON object:\n"
+    "Reply with ONLY a JSON object. ALL text fields (title, description, owner_role) MUST be written "
+    "in Traditional Chinese (繁體中文). The 'priority' field must remain in English (low|medium|high):\n"
     '{"action_items": [{"title": "...", "description": "...", '
     '"priority": "low|medium|high", "owner_role": "..."}]}'
 )
