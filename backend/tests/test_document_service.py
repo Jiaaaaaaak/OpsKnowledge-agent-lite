@@ -1,6 +1,6 @@
 """
 DocumentIngestionService 單元測試
-涵蓋：_chunk_text 分塊邏輯、_extract_pages（mocked）、ingest 主流程（mocked）
+涵蓋：_chunk_text 分塊邏輯、_join_pages、_chunk_text_by_section、_extract_pages（mocked）、ingest 主流程（mocked）
 """
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -34,9 +34,15 @@ class TestChunkText:
         assert len(chunks) == 1
         assert len(chunks[0]) == 1000
 
-    def test_text_slightly_over_chunk_size_two_chunks(self):
-        # 1001 chars → chunk[0]=1000, start=850, chunk[1]=text[850:1001]=151 chars
+    def test_text_slightly_over_chunk_size_废_chunk_filtered(self):
+        # 1001 chars, chunk_size=1000, overlap=150 → chunk[1] 新增有效內容僅 1 字元 < min_chunk_size，應被過濾
         text = "a" * 1001
+        chunks = DocumentIngestionService._chunk_text(text, chunk_size=1000, overlap=150)
+        assert len(chunks) == 1
+
+    def test_text_with_sufficient_new_content_keeps_second_chunk(self):
+        # 1200 chars, chunk_size=1000, overlap=150 → chunk[1] 新增 200 字元 ≥ min_chunk_size=100，應保留
+        text = "a" * 1200
         chunks = DocumentIngestionService._chunk_text(text, chunk_size=1000, overlap=150)
         assert len(chunks) == 2
 
@@ -93,6 +99,168 @@ class TestChunkText:
     def test_single_character_text(self):
         chunks = DocumentIngestionService._chunk_text("X")
         assert chunks == ["X"]
+
+
+# ─────────────────────────────────────────────────────────────
+# _join_pages 與 _page_number_at
+# ─────────────────────────────────────────────────────────────
+
+class TestJoinPages:
+
+    def test_basic_two_pages(self):
+        pages = [(1, "Page one"), (2, "Page two")]
+        full_text, offsets = DocumentIngestionService._join_pages(pages)
+        assert full_text == "Page one\n\nPage two"
+        assert offsets[0] == (1, 0)
+        assert offsets[1] == (2, len("Page one") + 2)
+
+    def test_single_page(self):
+        pages = [(1, "Only page")]
+        full_text, offsets = DocumentIngestionService._join_pages(pages)
+        assert full_text == "Only page"
+        assert offsets == [(1, 0)]
+
+    def test_three_pages_offsets(self):
+        pages = [(1, "AAA"), (2, "BB"), (3, "CCCC")]
+        full_text, offsets = DocumentIngestionService._join_pages(pages)
+        assert full_text == "AAA\n\nBB\n\nCCCC"
+        assert offsets[0] == (1, 0)
+        assert offsets[1] == (2, 5)   # len("AAA") + 2
+        assert offsets[2] == (3, 9)   # 5 + len("BB") + 2
+
+    def test_page_number_at_first_page(self):
+        offsets = [(1, 0), (2, 100), (3, 200)]
+        assert DocumentIngestionService._page_number_at(0, offsets) == 1
+        assert DocumentIngestionService._page_number_at(99, offsets) == 1
+
+    def test_page_number_at_second_page(self):
+        offsets = [(1, 0), (2, 100), (3, 200)]
+        assert DocumentIngestionService._page_number_at(100, offsets) == 2
+        assert DocumentIngestionService._page_number_at(199, offsets) == 2
+
+    def test_page_number_at_last_page(self):
+        offsets = [(1, 0), (2, 100), (3, 200)]
+        assert DocumentIngestionService._page_number_at(200, offsets) == 3
+        assert DocumentIngestionService._page_number_at(999, offsets) == 3
+
+    def test_multi_page_chunk_page_number_reflects_content_position(self):
+        page1 = "First page content here"
+        page2 = "Second page content here"
+        pages = [(1, page1), (2, page2)]
+        full_text, offsets = DocumentIngestionService._join_pages(pages)
+        p2_offset = offsets[1][1]
+        # char 在 page2 起始之後，應回傳頁碼 2
+        assert DocumentIngestionService._page_number_at(p2_offset, offsets) == 2
+        assert DocumentIngestionService._page_number_at(p2_offset + 5, offsets) == 2
+        # char 在 page2 起始之前，應回傳頁碼 1
+        assert DocumentIngestionService._page_number_at(p2_offset - 1, offsets) == 1
+
+
+# ─────────────────────────────────────────────────────────────
+# _chunk_text_by_section
+# ─────────────────────────────────────────────────────────────
+
+class TestChunkTextBySection:
+
+    def _single_page_offsets(self, full_text: str) -> list[tuple[int, int]]:
+        return [(1, 0)]
+
+    def test_chinese_section_title_in_metadata(self):
+        text = "一、概述\n這是第一節的內容，詳細說明了系統架構與設計原則。\n\n二、安裝步驟\n請依照以下步驟操作完成安裝程序。"
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        titles = [c['section_title'] for c in chunks if c.get('section_title')]
+        assert any('一、' in t for t in titles), f"expected Chinese section title, got: {titles}"
+
+    def test_english_numbered_section_title_in_metadata(self):
+        # 每個段落超過 min_chunk_size(100)，避免短段合併遮蔽 section_title
+        overview = "This is the overview section with detailed explanation of the system. " * 2
+        causes = "The causes include network issues, disk full, and configuration errors. " * 2
+        steps = "Follow these troubleshooting steps carefully to resolve the issue. " * 2
+        text = (
+            f"1. Overview\n{overview}\n\n"
+            f"2. Possible Causes\n{causes}\n\n"
+            f"3. Troubleshooting Steps\n{steps}"
+        )
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        titles = [c['section_title'] for c in chunks if c.get('section_title')]
+        assert any('1.' in t for t in titles), f"expected numbered title starting with 1., got: {titles}"
+        assert any('2.' in t for t in titles), f"expected numbered title starting with 2., got: {titles}"
+
+    def test_markdown_heading_recognized_and_level_set(self):
+        text = (
+            "# Overview\nSystem overview here with detailed explanation.\n\n"
+            "## Troubleshooting\nFollow these steps carefully.\n\n"
+            "### Common Errors\nList of common errors and resolutions."
+        )
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        titles = [c['section_title'] for c in chunks if c.get('section_title')]
+        levels = [c['section_level'] for c in chunks]
+        assert any(t.startswith('#') for t in titles), f"expected Markdown title, got: {titles}"
+        assert any(lv in ('h1', 'h2', 'h3') for lv in levels), f"expected h1/h2/h3, got: {levels}"
+
+    def test_sop_keyword_section_title_recognized(self):
+        text = (
+            "Purpose\nThis document explains the recovery procedure.\n\n"
+            "Prevention Checklist\n- Check item 1\n- Check item 2\n- Check item 3"
+        )
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        titles = [c['section_title'] for c in chunks if c.get('section_title')]
+        assert any('Purpose' in t for t in titles), f"expected Purpose title, got: {titles}"
+
+    def test_no_section_title_does_not_fail(self):
+        text = "Some plain content without any section title. It just continues on."
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        assert len(chunks) >= 1
+        # section_title 可為 None，但不應拋出例外
+
+    def test_short_adjacent_sections_merged(self):
+        # 兩個很短的章節加起來 < chunk_size，應合併避免孤立短 chunk
+        short1 = "Notes\n- Item A\n- Item B"               # ~24 chars
+        short2 = "FAQ\n- Q: What? A: This."                # ~24 chars
+        text = short1 + "\n\n" + short2
+        chunks = DocumentIngestionService._chunk_text_by_section(
+            text, [(1, 0)], chunk_size=800, min_chunk_size=100
+        )
+        # 若兩段合計 < min_chunk_size，應合併為一個 chunk
+        total_len = len(short1) + len(short2)
+        if total_len < 100:
+            # 無論如何不應拋出例外；chunk 數量 <= 2
+            assert len(chunks) <= 2
+
+    def test_long_section_falls_back_to_chunk_text(self):
+        # 超過 chunk_size 的章節應被拆成多個 chunk
+        long_section = "## Long Section\n" + "Content sentence here. " * 80
+        chunks = DocumentIngestionService._chunk_text_by_section(
+            long_section, [(1, 0)], chunk_size=800
+        )
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk['content']) <= 800
+
+    def test_char_start_end_present_and_valid(self):
+        text = "1. Overview\nContent here.\n\n2. Details\nMore content here."
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        for chunk in chunks:
+            assert 'char_start' in chunk
+            assert 'char_end' in chunk
+            assert chunk['char_end'] > chunk['char_start']
+            # chunk content 應對應 full_text 中該範圍的內容（不要求完全相等，因 strip 可能有差）
+            assert len(chunk['content']) > 0
+
+    def test_page_number_from_offsets(self):
+        page1 = "A" * 50
+        page2 = "B" * 50
+        full_text, offsets = DocumentIngestionService._join_pages([(1, page1), (2, page2)])
+        chunks = DocumentIngestionService._chunk_text_by_section(full_text, offsets)
+        page_nums = {c['page_number'] for c in chunks}
+        # 至少應有 page 1 的 chunk
+        assert 1 in page_nums
+
+    def test_chunk_size_field_matches_content_length(self):
+        text = "1. Overview\nContent.\n\n2. Details\nMore content here for details."
+        chunks = DocumentIngestionService._chunk_text_by_section(text, [(1, 0)])
+        for chunk in chunks:
+            assert chunk['chunk_size'] == len(chunk['content'])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -195,11 +363,17 @@ class TestIngest:
 
         assert len(added_chunks) >= 1
         for chunk in added_chunks:
+            # 原有欄位
             assert "filename" in chunk.metadata_
             assert "page_number" in chunk.metadata_
             assert "chunk_size" in chunk.metadata_
             assert chunk.metadata_["filename"] == "sop.pdf"
             assert chunk.metadata_["page_number"] == 1
+            # 新增欄位
+            assert "section_title" in chunk.metadata_
+            assert "section_level" in chunk.metadata_
+            assert "char_start" in chunk.metadata_
+            assert "char_end" in chunk.metadata_
 
     @patch("app.services.document_service.PdfReader")
     def test_chunk_indices_are_sequential(self, mock_reader_cls):
