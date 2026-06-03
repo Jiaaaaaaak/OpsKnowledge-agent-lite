@@ -5,11 +5,57 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.document import Document
 from app.models.project import Project
 from app.services.document_service import DocumentIngestionResult, DocumentIngestionService
 from app.services.vector_store import get_vector_store
 
 router = APIRouter(prefix="/projects", tags=["Documents"])
+
+
+class DocumentSummary(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    filename: str
+    document_type: str
+    page_count: int
+    chunk_count: int
+    created_at: str
+
+
+@router.get(
+    "/{project_id}/documents",
+    response_model=list[DocumentSummary],
+    status_code=status.HTTP_200_OK,
+    summary="列出專案已上傳文件",
+)
+def list_documents(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> list[DocumentSummary]:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    documents = (
+        db.query(Document)
+        .filter(Document.project_id == project_id)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+
+    return [
+        DocumentSummary(
+            id=doc.id,
+            project_id=doc.project_id,
+            filename=doc.filename,
+            document_type=doc.document_type,
+            page_count=int((doc.metadata_ or {}).get("page_count") or 0),
+            chunk_count=len(doc.chunks),
+            created_at=doc.created_at.isoformat(),
+        )
+        for doc in documents
+    ]
 
 
 @router.post(
