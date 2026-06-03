@@ -40,6 +40,9 @@ export const uploadTickets = (projectId: string, file: File) => {
   });
 };
 
+export const listDocuments = (projectId: string) =>
+  get(`/projects/${projectId}/documents`);
+
 // ── Chat & Analysis ──────────────────────────────────────────
 export const chat = (projectId: string, question: string, top_k: number = 5) => 
   post(`/projects/${projectId}/chat`, { question, top_k });

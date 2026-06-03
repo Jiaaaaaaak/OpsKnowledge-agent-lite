@@ -4,7 +4,8 @@ import AppLayout from './components/layout/AppLayout';
 import ProjectPage from './pages/ProjectPage';
 import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
-import DocumentsPage from './pages/DocumentsPage';
+import IncidentUploadPage from './pages/IncidentUploadPage';
+import DocumentUploadPage from './pages/DocumentUploadPage';
 import AnalysisPage from './pages/AnalysisPage';
 import AgentRunsPage from './pages/AgentRunsPage';
 import SystemStatusPage from './pages/SystemStatusPage';
@@ -18,7 +19,8 @@ function App() {
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectPage />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="documents" element={<DocumentsPage />} />
+            <Route path="incident-upload" element={<IncidentUploadPage />} />
+            <Route path="document-upload" element={<DocumentUploadPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="analysis" element={<AnalysisPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
