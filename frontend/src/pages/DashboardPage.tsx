@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Card } from '../components/ui/Card';
-import { ShieldAlert, BarChart3, AlertTriangle, Lightbulb } from 'lucide-react';
+import { ShieldAlert, BarChart3, AlertTriangle, Lightbulb, UploadCloud, PlaySquare } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { getDashboard } from '../services/api';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 
 export default function DashboardPage() {
   const { currentProject } = useProject();
+  const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +48,42 @@ export default function DashboardPage() {
   if (error) return <div className="p-8 text-center text-red-500">發生錯誤: {error}</div>;
   if (!data) return null;
 
+  const hasData = data.ticket_count > 0 || (data.top_insights && data.top_insights.length > 0);
+
+  if (!hasData) {
+    return (
+      <div className="max-w-3xl mx-auto mt-12">
+        <Card className="text-center py-16 border-dashed border-slate-300">
+          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <BarChart3 className="w-8 h-8 text-slate-400" />
+          </div>
+          <h2 className="text-2xl font-semibold text-slate-800 mb-2">目前沒有分析資料</h2>
+          <p className="text-slate-500 max-w-md mx-auto mb-8">
+            儀表板需要經過 AI 事件分析後才能顯示洞察報告與行動項目。請按照以下流程建立資料：
+          </p>
+          
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Button onClick={() => navigate('/incident-upload')} variant="outline" className="w-full sm:w-auto flex items-center justify-center">
+              <UploadCloud className="w-4 h-4 mr-2" />
+              1. 匯入事件紀錄
+            </Button>
+            <div className="hidden sm:block text-slate-300">→</div>
+            <Button onClick={() => navigate('/analysis')} className="w-full sm:w-auto flex items-center justify-center">
+              <PlaySquare className="w-4 h-4 mr-2" />
+              2. 執行 AI 分析
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-slate-800">分析儀表板</h2>
+        <p className="text-slate-600 mt-1">檢視事件洞察、高風險項目與建議的行動計畫。</p>
+      </div>
       
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-6">
@@ -79,7 +114,7 @@ export default function DashboardPage() {
             {data.top_insights.map((ins: any, idx: number) => (
               <div key={idx} className="p-4 border border-slate-100 bg-slate-50/50 rounded-lg">
                 <div className="flex items-start">
-                  <Lightbulb className="w-5 h-5 text-amber-400 mr-3 mt-0.5 shrink-0" />
+                  <Lightbulb className="w-5 h-5 text-amber-500 mr-3 mt-0.5 shrink-0" />
                   <div>
                     <h4 className="font-semibold text-slate-800">{ins.title}</h4>
                     <p className="text-sm text-slate-600 mt-1 mb-3">{ins.summary}</p>

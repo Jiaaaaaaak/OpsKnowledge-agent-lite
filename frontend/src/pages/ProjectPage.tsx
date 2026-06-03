@@ -3,12 +3,14 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { listProjects, createProject } from '../services/api';
 import { useProject } from '../context/ProjectContext';
-import { FolderGit2, Plus } from 'lucide-react';
+import { FolderGit2, Plus, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function ProjectPage() {
   const { currentProject, setCurrentProject } = useProject();
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -63,26 +65,40 @@ export default function ProjectPage() {
             {projects.map(p => (
               <div 
                 key={p.id} 
-                className={`p-4 border rounded-lg flex items-center justify-between transition-colors ${
+                className={`p-4 border rounded-lg flex flex-col justify-center transition-colors ${
                   currentProject?.id === p.id 
                     ? 'border-indigo-500 bg-indigo-50/50' 
-                    : 'border-slate-200 hover:border-indigo-300 bg-white'
+                    : 'border-slate-200 hover:border-indigo-300 bg-white cursor-pointer'
                 }`}
+                onClick={() => currentProject?.id !== p.id && setCurrentProject(p)}
               >
-                <div>
-                  <h4 className={`font-medium ${currentProject?.id === p.id ? 'text-indigo-900' : 'text-slate-800'}`}>
-                    {p.name}
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1 font-mono">{p.id.substring(0,8)}...</p>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h4 className={`font-medium ${currentProject?.id === p.id ? 'text-indigo-900' : 'text-slate-800'}`}>
+                      {p.name}
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1 font-mono">{p.id.substring(0,8)}...</p>
+                  </div>
+                  {currentProject?.id !== p.id && (
+                    <Button variant="outline" size="sm">選擇</Button>
+                  )}
                 </div>
-                <Button 
-                  variant={currentProject?.id === p.id ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => setCurrentProject(p)}
-                  disabled={currentProject?.id === p.id}
-                >
-                  {currentProject?.id === p.id ? '目前選擇' : '使用此專案'}
-                </Button>
+                
+                {currentProject?.id === p.id && (
+                  <div className="flex justify-end mt-2 pt-2 border-t border-indigo-100">
+                    <Button 
+                      size="sm"
+                      className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/incident-upload');
+                      }}
+                    >
+                      下一步：匯入事件紀錄
+                      <ArrowRight className="w-4 h-4 ml-1.5" />
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

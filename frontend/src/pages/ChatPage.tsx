@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/ui/Button';
-import { Send, Bot, User, ShieldAlert } from 'lucide-react';
+import { Send, Bot, User, ShieldAlert, AlertCircle, FileText, RefreshCw } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
-import { chat } from '../services/api';
+import { chat, listDocuments } from '../services/api';
 import { Link } from 'react-router-dom';
 
 interface ChatMessage {
@@ -10,14 +10,97 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   citations?: any[];
+  isError?: boolean;
+}
+
+interface UploadedDocument {
+  id: string;
+  filename: string;
+  document_type: string;
+  page_count: number;
+  chunk_count: number;
+  created_at: string;
+}
+
+interface ChatDraft {
+  input: string;
+  topK: number;
+  messages: ChatMessage[];
+}
+
+const defaultDraft: ChatDraft = {
+  input: '',
+  topK: 5,
+  messages: [],
+};
+
+function getDraftKey(projectId: string) {
+  return `opsknowledge_rag_chat_${projectId}`;
+}
+
+function loadDraft(projectId: string): ChatDraft {
+  const saved = localStorage.getItem(getDraftKey(projectId));
+  if (!saved) return defaultDraft;
+
+  try {
+    return { ...defaultDraft, ...JSON.parse(saved) };
+  } catch {
+    return defaultDraft;
+  }
 }
 
 export default function ChatPage() {
   const { currentProject } = useProject();
-  const [input, setInput] = useState('');
-  const [topK, setTopK] = useState(5);
+  const [input, setInput] = useState(defaultDraft.input);
+  const [topK, setTopK] = useState(defaultDraft.topK);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(defaultDraft.messages);
+  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+  const projectId = currentProject?.id;
+
+  useEffect(() => {
+    if (!projectId) return;
+    const draft = loadDraft(projectId);
+    setInput(draft.input);
+    setTopK(draft.topK);
+    setMessages(draft.messages);
+    setDraftProjectId(projectId);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || draftProjectId !== projectId) return;
+    localStorage.setItem(
+      getDraftKey(projectId),
+      JSON.stringify({ input, topK, messages })
+    );
+  }, [draftProjectId, input, messages, projectId, topK]);
+
+  const loadDocuments = async () => {
+    if (!projectId) return;
+    setIsLoadingDocuments(true);
+    setDocumentError(null);
+    try {
+      const res = await listDocuments(projectId);
+      setDocuments(res || []);
+    } catch (err: any) {
+      setDocumentError(err.message);
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDocuments();
+  }, [projectId]);
+
+  const documentSummary = useMemo(() => {
+    const totalPages = documents.reduce((sum, doc) => sum + doc.page_count, 0);
+    const totalChunks = documents.reduce((sum, doc) => sum + doc.chunk_count, 0);
+    return { totalPages, totalChunks };
+  }, [documents]);
 
   if (!currentProject) {
     return (
@@ -54,7 +137,8 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `❌ 發生錯誤: ${err.message}`
+        content: `發生錯誤: ${err.message}`,
+        isError: true
       }]);
     } finally {
       setIsSubmitting(false);
@@ -63,6 +147,58 @@ export default function ChatPage() {
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <FileText className="w-4 h-4 text-indigo-600" />
+              已上傳文件
+              <span className="text-xs font-medium text-slate-500">
+                {documents.length} 份 · {documentSummary.totalPages} 頁 · {documentSummary.totalChunks} chunks
+              </span>
+            </div>
+            {documentError && (
+              <p className="mt-1 text-xs text-red-600">文件清單載入失敗: {documentError}</p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={loadDocuments}
+            disabled={isLoadingDocuments}
+            className="self-start sm:self-auto"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingDocuments ? 'animate-spin' : ''}`} />
+            重新整理
+          </Button>
+        </div>
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {documents.length === 0 ? (
+            <Link
+              to="/document-upload"
+              className="text-sm text-slate-500 hover:text-indigo-600"
+            >
+              尚未找到文件，前往上傳技術文件
+            </Link>
+          ) : (
+            documents.map((doc) => (
+              <div
+                key={doc.id}
+                className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                title={doc.filename}
+              >
+                <p className="max-w-56 truncate text-sm font-medium text-slate-800">{doc.filename}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {doc.page_count} 頁 · {doc.chunk_count} chunks
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <div className="flex justify-end items-center px-2">
         <label className="text-sm text-slate-600 mr-2 font-medium">檢索段落數 (Top K):</label>
         <input 
@@ -94,8 +230,11 @@ export default function ChatPage() {
                   <div className={`rounded-2xl px-5 py-3.5 shadow-sm ${
                     msg.role === 'user' 
                       ? 'bg-indigo-600 text-white rounded-tr-sm' 
-                      : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'
+                      : msg.isError 
+                        ? 'bg-red-50 border border-red-200 text-red-800 rounded-tl-sm flex items-start gap-2'
+                        : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'
                   }`}>
+                    {msg.isError && <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />}
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                   </div>
                   
