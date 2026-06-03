@@ -1,7 +1,7 @@
 # OpsKnowledge Agent Lite — 4 服務全套 stack
 #
 # Ports（host → container）:
-#   frontend : 8501 → 8501  (Streamlit UI — start here)
+#   frontend : 8501 → 8501  (React UI — start here)
 #   backend  : 8000 → 8000  (FastAPI — http://localhost:8000/docs)
 #   postgres : 5432 → 5432  (Postgres 16)
 #   chromadb : 8001 → 8000  (Chroma 監聽 container 內 8000；host 對外用 8001 避開 backend)

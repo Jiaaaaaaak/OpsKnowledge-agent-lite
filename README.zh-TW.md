@@ -6,7 +6,7 @@
 
 ## 語言說明 / Language
 
-**使用者介面**（Streamlit 前端）使用**繁體中文**，目標使用情境為台灣／華語環境的
+**使用者介面**（React 前端）使用**繁體中文**，目標使用情境為台灣／華語環境的
 企業內部 IT 維運工具。
 
 **程式碼、API 路徑、資料庫 schema 與技術文件主檔**維持**英文**，符合工程慣例，
@@ -14,7 +14,7 @@
 
 | 層級 | 語言 | 原因 |
 |---|---|---|
-| Streamlit UI 標籤 / 按鈕 / 訊息 | 繁體中文 | 目標使用者為台灣 IT 維運團隊 |
+| React UI 標籤 / 按鈕 / 訊息 | 繁體中文 | 目標使用者為台灣 IT 維運團隊 |
 | 程式識別字（函式 / 類別 / 變數） | 英文 | 工程慣例 |
 | FastAPI 路徑與 request / response 欄位名 | 英文 | 後端 contract 穩定 |
 | 資料庫欄位與資料表名稱 | 英文 | Schema 可攜性 |
@@ -30,7 +30,7 @@
 | 事件 ETL | 上傳 CSV／Excel／JSON 工單 → 正規化、清洗、寫入 PostgreSQL |
 | AI 分析 | 事件分類、嚴重度評分、產生洞察與行動項目 |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
-| 儀表板 | 以 Streamlit 提供上傳、問答、分析與代理日誌介面 |
+| 儀表板 | 以 React 提供上傳、問答、分析與代理日誌介面 |
 
 ## 技術堆疊
 
@@ -38,7 +38,7 @@
 - **資料庫**：PostgreSQL 16
 - **向量資料庫**：ChromaDB
 - **AI**：相容 OpenAI 介面（可切換至 Ollama）
-- **前端**：Streamlit
+- **前端**：React (Vite + TypeScript + Tailwind CSS)
 - **基礎設施**：Docker Compose
 
 ## 快速開始（Docker Compose）
@@ -60,7 +60,7 @@ docker compose up --build
 make up
 
 # 4. 開啟 UI
-#    前端（Streamlit）：http://localhost:8501
+#    前端（React）：http://localhost:8501
 #    後端文件：          http://localhost:8000/docs
 #    後端健康檢查：      http://localhost:8000/health
 ```
@@ -79,7 +79,7 @@ make clean              # 會詢問確認
 
 | 服務 | Host port | Container port | 鏡像 / 建置 |
 |---|---|---|---|
-| frontend（Streamlit） | **8501** | 8501 | 由 `frontend/Dockerfile` 建置 |
+| frontend（React） | **8501** | 8501 | 由 `frontend/Dockerfile` 建置（`vite preview`） |
 | backend（FastAPI） | **8000** | 8000 | 由 `backend/Dockerfile` 建置 |
 | postgres | **5432** | 5432 | `postgres:16-alpine` |
 | chromadb | **8001** | 8000 | `chromadb/chroma:0.5.23`（host 8001 避免與 backend 衝突） |
@@ -315,7 +315,7 @@ opsknowledge-agent-lite/
       db/            資料庫連線、遷移
       utils/         共用輔助函式
     tests/
-  frontend/          Streamlit UI
+  frontend/          React UI (Vite + TypeScript + Tailwind CSS)
   docs/              架構、PRD、資料模型、API 文件
   demo_data/         供 Demo 用的範例工單與 PDF
   docker-compose.yml
@@ -487,20 +487,21 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
 靜默吞掉。端點是 idempotent 的 — 重跑時會略過已在 `incident_analysis` 內的紀錄。
 完整 API 參考：[docs/API.zh-TW.md](docs/API.zh-TW.md#事件分析-agent)。
 
-## 前端（Streamlit）
+## 前端（React）
 
-Streamlit UI 是跑完整 demo 流程的推薦方式，鏡像了後端 API surface，
+React UI 是跑完整 demo 流程的推薦方式，鏡像了後端 API surface，
 也就是面試官或利害關係人實際會看到的東西。
 
 ### 頁面
 
 | 頁面 | 用途 |
 |---|---|
-| 專案設定 | 建立或選擇目前專案（存在 session state） |
-| 資料上傳 | 上傳 PDF（RAG 語料）與事件 ticket（ETL → cleaned_records） |
+| 專案設定 | 建立或選擇目前專案 |
+| 文件上傳 | 上傳 PDF（RAG 語料） |
+| 事件上傳 | 上傳事件 ticket（CSV / Excel / JSON → ETL → cleaned_records） |
 | 知識庫問答 | RAG 問答 — 回答 + 引用（filename、chunk index、snippet） |
 | 事件分析 | 一鍵「執行事件分析」— 觸發 4-tool agent 並顯示摘要 |
-| 儀表板 | 工單總數、類別 / 嚴重程度長條圖、重點洞察、未處理行動項目、最近 agent 執行紀錄 |
+| 分析儀表板 | 工單總數、重點洞察、未處理行動項目 |
 | Agent 執行紀錄 | 瀏覽 `agent_runs`；選一筆 drill 進它的 `tool_calls`（每個工具的 input / output / 錯誤 / 延遲） |
 
 ### 用 Docker 跑（demo 推薦）
@@ -509,20 +510,20 @@ docker compose up --build
 # UI:      http://localhost:8501
 # Backend: http://localhost:8000
 ```
-`BACKEND_URL=http://backend:8000` 由 `docker-compose.yml` 注入，Streamlit 容器透過
-compose 網路連到 backend。
+`BACKEND_URL=http://backend:8000` 由 `docker-compose.yml` 注入，React 容器透過
+compose 網路連到 backend（Vite proxy `/api` → backend）。
 
 ### 本機跑（無 Docker）
 ```bash
 # 先啟動 backend（參考上方「本機開發」），再：
 cd frontend
-pip install -r requirements.txt
-BACKEND_URL=http://localhost:8000 streamlit run streamlit_app.py
-# UI: http://localhost:8501
+npm install
+npm run dev
+# UI: http://localhost:5173
 ```
 
-`BACKEND_URL` 未設時預設為 `http://localhost:8000`。所有 HTTP 錯誤都會被 catch
-並以 `st.error()` 呈現 — UI 不會出現 Python traceback。
+Vite dev server 會透過 `/api` proxy 轉發到 `http://localhost:8000`，
+不需額外設定 `BACKEND_URL`。
 
 ## Demo Flow（端到端，mock 模式）
 
@@ -614,6 +615,6 @@ ORDER BY ar.created_at DESC;
 - [x] Prompt 7：可觀測性 — 每次 chat 請求都寫 `agent_runs` + `tool_calls`
 - [x] 步驟 4：事件分析 agent（`POST /projects/{id}/analyze/incidents` — 4 個工具、結構化 JSON、Pydantic 驗證、完整 agent_runs / tool_calls 追溯）
 - [x] 步驟 5：Dashboard 與 Observability 唯讀 API（`GET /projects/{id}/dashboard`、`/agent-runs`、`/agent-runs/{id}/tool-calls`）
-- [x] 步驟 6：Streamlit 6 頁面 demo UI（繁體中文）
+- [x] 步驟 6：React 7 頁面 demo UI（繁體中文，Vite + TypeScript + Tailwind CSS）
 - [x] 本地模型 provider（Ollama）— 原生 HTTP LLM provider，供私有／地端部署
 - [ ] 步驟 8+：本地 embedding provider、其他 agent 工具
