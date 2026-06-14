@@ -11,6 +11,7 @@ import AgentRunsPage from './pages/AgentRunsPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import EventInsightsWorkflowPage from './pages/EventInsightsWorkflowPage';
 import AnalysisResultPage from './pages/AnalysisResultPage';
+import KnowledgeWorkflowPage from './pages/KnowledgeWorkflowPage';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
             <Route path="analysis" element={<AnalysisPage />} />
             <Route path="insights/workflow" element={<EventInsightsWorkflowPage />} />
             <Route path="analysis/result/:agentRunId" element={<AnalysisResultPage />} />
+            <Route path="knowledge/workflow" element={<KnowledgeWorkflowPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="status" element={<SystemStatusPage />} />
           </Route>
