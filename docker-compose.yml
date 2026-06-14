@@ -83,12 +83,16 @@ services:
       - "8501:8501"
     environment:
       BACKEND_URL: http://backend:8000
+    # 以 Vite dev server（含 HMR）執行，改前端原始碼即時反映、不需重 build dist
+    command: npm run dev
     # frontend 沒有 healthcheck 需求；它本身就是給人按的 UI
     depends_on:
       backend:
         condition: service_healthy
     volumes:
       - ./frontend:/app
+      # 匿名 volume 保留容器內自身的 node_modules（正確的原生 binding），避免被 host 覆蓋
+      - /app/node_modules
 
 volumes:
   postgres_data:

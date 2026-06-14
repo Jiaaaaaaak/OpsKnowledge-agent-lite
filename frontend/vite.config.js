@@ -5,7 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    host: '0.0.0.0',
+    port: 8501,
+    // WSL2/Docker bind mount 的檔案事件不一定會傳進容器，改用輪詢確保 HMR 生效
+    watch: { usePolling: true },
     proxy: {
       '/api': {
         target: process.env.BACKEND_URL || 'http://backend:8000',
