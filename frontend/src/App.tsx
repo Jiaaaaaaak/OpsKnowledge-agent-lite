@@ -9,6 +9,8 @@ import DocumentUploadPage from './pages/DocumentUploadPage';
 import AnalysisPage from './pages/AnalysisPage';
 import AgentRunsPage from './pages/AgentRunsPage';
 import SystemStatusPage from './pages/SystemStatusPage';
+import EventInsightsWorkflowPage from './pages/EventInsightsWorkflowPage';
+import AnalysisResultPage from './pages/AnalysisResultPage';
 
 function App() {
   return (
@@ -23,6 +25,8 @@ function App() {
             <Route path="document-upload" element={<DocumentUploadPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="analysis" element={<AnalysisPage />} />
+            <Route path="insights/workflow" element={<EventInsightsWorkflowPage />} />
+            <Route path="analysis/result/:agentRunId" element={<AnalysisResultPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="status" element={<SystemStatusPage />} />
           </Route>
