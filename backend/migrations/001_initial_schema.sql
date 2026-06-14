@@ -156,6 +156,14 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_project_id ON agent_runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_created_at ON agent_runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_status     ON agent_runs(status);
 
+ALTER TABLE insights
+    ADD COLUMN IF NOT EXISTS agent_run_id UUID REFERENCES agent_runs(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_insights_agent_run_id ON insights(agent_run_id);
+
+ALTER TABLE action_items
+    ADD COLUMN IF NOT EXISTS agent_run_id UUID REFERENCES agent_runs(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_action_items_agent_run_id ON action_items(agent_run_id);
+
 -- ─────────────────────────────────────────────────────────
 -- tool_calls
 -- ─────────────────────────────────────────────────────────

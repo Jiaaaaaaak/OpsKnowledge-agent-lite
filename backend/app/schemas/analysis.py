@@ -34,6 +34,7 @@ class IncidentAnalysisRead(BaseModel):
 
 class InsightCreate(BaseModel):
     project_id: UUID
+    agent_run_id: UUID | None = None
     title: str
     summary: str
     evidence: list = Field(default_factory=list)
@@ -45,6 +46,7 @@ class InsightRead(BaseModel):
 
     id: UUID
     project_id: UUID
+    agent_run_id: UUID | None
     title: str
     summary: str
     evidence: list
@@ -55,6 +57,7 @@ class InsightRead(BaseModel):
 
 class ActionItemCreate(BaseModel):
     project_id: UUID
+    agent_run_id: UUID | None = None
     title: str
     description: str
     priority: str
@@ -67,6 +70,7 @@ class ActionItemRead(BaseModel):
 
     id: UUID
     project_id: UUID
+    agent_run_id: UUID | None
     title: str
     description: str
     priority: str

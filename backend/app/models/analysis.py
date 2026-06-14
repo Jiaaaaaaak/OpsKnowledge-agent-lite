@@ -30,25 +30,30 @@ class Insight(PKMixin, TimestampMixin, Base):
     __tablename__ = "insights"
     __table_args__ = (
         Index("idx_insights_project_id", "project_id"),
+        Index("idx_insights_agent_run_id", "agent_run_id"),
     )
 
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True)
     title = Column(VARCHAR(500), nullable=False)
     summary = Column(Text, nullable=False)
     evidence = Column(JSONB, nullable=False, default=list)
     recommendation = Column(Text, nullable=False)
 
     project = relationship("Project", back_populates="insights")
+    agent_run = relationship("AgentRun", back_populates="insights")
 
 
 class ActionItem(PKMixin, TimestampMixin, Base):
     __tablename__ = "action_items"
     __table_args__ = (
         Index("idx_action_items_project_id", "project_id"),
+        Index("idx_action_items_agent_run_id", "agent_run_id"),
         Index("idx_action_items_status", "status"),
     )
 
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True)
     title = Column(VARCHAR(500), nullable=False)
     description = Column(Text, nullable=False)
     priority = Column(VARCHAR(50), nullable=False)
@@ -56,3 +61,4 @@ class ActionItem(PKMixin, TimestampMixin, Base):
     status = Column(VARCHAR(100), nullable=False, default="pending")
 
     project = relationship("Project", back_populates="action_items")
+    agent_run = relationship("AgentRun", back_populates="action_items")

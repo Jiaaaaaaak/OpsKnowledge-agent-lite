@@ -25,6 +25,8 @@ class AgentRun(PKMixin, TimestampMixin, Base):
 
     project = relationship("Project", back_populates="agent_runs")
     tool_calls = relationship("ToolCall", back_populates="agent_run", cascade="all, delete-orphan")
+    insights = relationship("Insight", back_populates="agent_run")
+    action_items = relationship("ActionItem", back_populates="agent_run")
 
 
 class ToolCall(PKMixin, TimestampMixin, Base):
