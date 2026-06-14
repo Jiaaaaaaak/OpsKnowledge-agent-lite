@@ -10,6 +10,23 @@
 
 ---
 
+## Execution Log
+
+2026-06-15:
+
+- Consolidated the pre-existing tracked dirty work on `main` into three commits:
+  - `822e504 chore: switch local stack to pgvector and ollama`
+  - `2f5c947 feat: move document vectors into pgvector`
+  - `de5b227 docs: update pgvector and ollama guidance`
+- Pushed `main` to `origin/main`; local `main` and `origin/main` both point to `de5b227`.
+- Created the feature branch `guided-workflows-uiux` from the pushed `main`.
+- `.superpowers/` remains an untracked local visual-brainstorming cache. It is intentionally not committed or pushed.
+- Implementation progress on `guided-workflows-uiux`:
+  - Task 1 completed and committed as `63dd727 feat: link analysis outputs to agent runs`.
+  - Task 2 is in progress with uncommitted backend API/service/test edits.
+
+---
+
 ## File Structure
 
 Backend:
