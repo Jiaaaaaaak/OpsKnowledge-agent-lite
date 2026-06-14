@@ -28,7 +28,7 @@ review internationally.
 
 | Capability | Description |
 |---|---|
-| Document RAG | Upload PDF manuals/SOPs → chunk, embed, retrieve via ChromaDB |
+| Document RAG | Upload PDF manuals/SOPs → chunk, embed, retrieve via PostgreSQL + pgvector |
 | Incident ETL | Upload CSV/Excel/JSON tickets → normalize, clean, store in PostgreSQL |
 | AI Analysis | Classify incidents, score severity, generate insights and action items |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
@@ -38,30 +38,33 @@ review internationally.
 
 - **Backend**: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2
 - **Database**: PostgreSQL 16
-- **Vector DB**: ChromaDB
+- **Vector DB**: PostgreSQL + pgvector
 - **AI**: OpenAI-compatible (swappable to Ollama)
 - **Frontend**: React (Vite + TypeScript + Tailwind CSS)
 - **Infra**: Docker Compose
 
 ## Quick Start (Docker Compose)
 
-Four steps, no manual setup beyond the `.env`:
+The default interview/demo path is local-first: Ollama for the LLM and mock
+384-dim embeddings for pgvector search.
 
 ```bash
-# 1. Copy the env template (defaults to mock mode — no API key needed)
+# 1. Copy the env template (defaults to Ollama LLM + mock embeddings)
 cp .env.example .env
 
 # 2. (Optional) edit .env if you want real models
 #    - Set LLM_PROVIDER=openai and fill OPENAI_API_KEY for hosted OpenAI
-#    - Set LLM_PROVIDER=ollama for a host-side Ollama. Docker Compose overrides
-#      OLLAMA_BASE_URL with DOCKER_OLLAMA_BASE_URL (default: http://host.docker.internal:11434).
+#    - Keep LLM_PROVIDER=ollama for the bundled Docker Compose Ollama service.
 
-# 3. Build and start the full stack (postgres, chromadb, backend, frontend)
-docker compose up --build
+# 3. Build and start the full stack (postgres + pgvector, ollama, backend, frontend)
+docker compose up --build -d
 # or, equivalently with the included Makefile:
 make up
 
-# 4. Open the UI
+# 4. Pull the local LLM model into the ollama_data volume
+make pull-ollama
+
+# 5. Open the UI
 #    Frontend (React):     http://localhost:8501
 #    Backend docs:          http://localhost:8000/docs
 #    Backend health:        http://localhost:8000/health
@@ -72,7 +75,7 @@ Stop everything (data is preserved in named volumes):
 docker compose down    # or: make down
 ```
 
-Wipe data and start over (destructive — drops postgres + chroma volumes):
+Wipe data and start over (destructive — drops postgres data and pulled Ollama models):
 ```bash
 make clean              # asks for confirmation
 ```
@@ -83,8 +86,8 @@ make clean              # asks for confirmation
 |---|---|---|---|
 | frontend (React) | **8501** | 8501 | built from `frontend/Dockerfile` |
 | backend (FastAPI) | **8000** | 8000 | built from `backend/Dockerfile` |
-| postgres | **5432** | 5432 | `postgres:16-alpine` |
-| chromadb | **8001** | 8000 | `chromadb/chroma:0.5.23` (host 8001 to avoid clashing with backend) |
+| postgres + pgvector | **5432** | 5432 | `pgvector/pgvector:pg16` |
+| ollama | **11434** | 11434 | `ollama/ollama` |
 
 ### Startup ordering
 
@@ -93,8 +96,8 @@ after its dependencies are actually ready:
 
 ```
 postgres (pg_isready)  ─┐
-                        ├─► backend (waits for both via service_healthy)
-chromadb (/heartbeat)  ─┘             │
+                        ├─► backend (waits for dependencies via service_healthy)
+ollama (ollama list)   ─┘             │
                                       └─► frontend (waits for backend /health)
 ```
 
@@ -107,9 +110,11 @@ schema is applied automatically before the API comes up.
 make up           # build + start in background
 make down         # stop (keep data)
 make logs         # tail all services (logs-backend / logs-frontend / ... for one)
+make logs-ollama  # tail Ollama logs
 make ps           # show container status
 make health       # curl /health and pretty-print
 make test         # run backend pytest inside the backend container
+make pull-ollama  # pull the default local LLM model into ollama_data
 make psql         # open a psql shell against the postgres container
 make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 ```
@@ -118,20 +123,20 @@ make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 
 | Mode | env vars | API key | Notes |
 |---|---|---|---|
-| **mock** (default) | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Deterministic local providers; runs the full pipeline offline |
-| **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Calls the OpenAI-compatible API for real embeddings and answers |
-| **ollama** (LLM) | `LLM_PROVIDER=ollama` (+ `EMBEDDING_PROVIDER=openai` or `mock`) | None for the LLM | Calls a local Ollama server for answers — for private / on-premise deployment |
+| **ollama-local** (default) | `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock` | None | Local Ollama answers + deterministic 384-dim embeddings for pgvector |
+| **mock** | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Fully deterministic offline providers; useful for tests |
+| **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Hosted LLM + OpenAI-compatible embeddings; embeddings are requested at 384 dimensions |
 
-> **Hosted API vs local model.** The `openai` provider is used for a **fast POC** —
-> minimal setup, strong out-of-the-box quality. The `ollama` provider is prepared for
-> **private / on-premise deployment**, where the LLM must run inside the customer's
-> network and no data may leave the host. Switching is a one-line `.env` change
-> (`LLM_PROVIDER`); no application code changes. See
+> **Local-first for interviews.** The main demo path uses `ollama` for answers and
+> `mock` embeddings for stable local vector search. The `openai` provider remains
+> available when hosted model quality is needed. Switching is an `.env` change; no
+> application code changes. See
 > [Local model provider (Ollama)](#local-model-provider-ollama) below.
 
-### Switching from mock mode to OpenAI
+### Switching from local Ollama mode to OpenAI
 
-The system ships in **mock mode** by default. To connect a real OpenAI-compatible API:
+The system ships in **Ollama LLM + mock embedding mode** by default. To connect a
+real OpenAI-compatible API:
 
 1. In the project-root `.env` (the same file `cp .env.example .env` creates), set the
    provider and key (the model / base URL already have defaults). Config is anchored to
@@ -139,6 +144,7 @@ The system ships in **mock mode** by default. To connect a real OpenAI-compatibl
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
+   EMBEDDING_DIMENSIONS=384
    OPENAI_API_KEY=sk-...your-real-key...
    # optional overrides:
    # OPENAI_BASE_URL=https://api.openai.com/v1
@@ -156,22 +162,25 @@ The system ships in **mock mode** by default. To connect a real OpenAI-compatibl
    (only a masked summary), and exits non-zero on failure so it can be used in CI.
    If the key is missing or invalid it returns a clear error.
 
-> Switching back to mock mode is the reverse one-line change
-> (`LLM_PROVIDER=mock`, `EMBEDDING_PROVIDER=mock`); no application code is involved.
+> `EMBEDDING_DIMENSIONS=384` is important because the pgvector column is
+> `vector(384)`. Switching back to local demo mode is:
+> `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock`.
 
 ### Hostnames: Docker vs local
 
-The app connects to PostgreSQL and ChromaDB via `POSTGRES_HOST` / `CHROMA_HOST`
+The app connects to PostgreSQL with pgvector via the `POSTGRES_*` settings.
 (there is no `DATABASE_URL` — see `backend/app/core/config.py`).
 
-- **Docker Compose** overrides these to the service names `postgres` and `chromadb`
-  (set in `docker-compose.yml`), so you do not edit `.env` for container networking.
+- **Docker Compose** overrides `POSTGRES_HOST` to `postgres`. pgvector is a
+  PostgreSQL extension inside that service, not a separate hostname.
+- **Docker Compose** overrides `OLLAMA_BASE_URL` to `http://ollama:11434` for
+  container networking.
 - **Local (no Docker)** uses the `.env.example` defaults of `localhost`.
 
 ## Mock Mode (No API Key Required)
 
-If you have not yet set up an OpenAI or Ollama account, you can run the full backend
-pipeline locally using deterministic mock providers:
+If you need fully deterministic tests without running a local model request, switch
+both providers to mock:
 
 | Provider | env var | Behaviour |
 |---|---|---|
@@ -179,7 +188,6 @@ pipeline locally using deterministic mock providers:
 | `MockLLMProvider` | `LLM_PROVIDER=mock` | Returns a `[mock]` prefixed answer extracted from retrieved context |
 
 ```bash
-# .env — these are the defaults from .env.example, no edit needed:
 EMBEDDING_PROVIDER=mock
 LLM_PROVIDER=mock
 # OPENAI_API_KEY is left empty — it is ignored in mock mode
@@ -188,7 +196,7 @@ LLM_PROVIDER=mock
 ### What works in mock mode
 - Backend unit tests, zero external calls
 - `POST /projects/{id}/upload/documents` — PDF is parsed, chunked, stored in PostgreSQL;
-  embeddings are generated locally and stored in ChromaDB (ChromaDB must be running)
+  embeddings are generated locally and stored in PostgreSQL + pgvector (PostgreSQL + pgvector must be running)
 - `GET /projects/{id}/search` — vector search returns results using mock vectors
 - `POST /projects/{id}/chat` — returns a deterministic mock answer with citations;
   `agent_runs` and `tool_calls` rows are written to PostgreSQL
@@ -203,11 +211,11 @@ cd backend
 PYTHONPATH=. pytest tests/ -v
 ```
 
-### Quick local smoke test (requires PostgreSQL + ChromaDB running)
+### Quick local smoke test (requires PostgreSQL + pgvector running)
 ```bash
 cp .env.example .env
 # Edit .env: set EMBEDDING_PROVIDER=mock  LLM_PROVIDER=mock
-#            set POSTGRES_* and CHROMA_* to your local services
+#            set POSTGRES_* to your local PostgreSQL + pgvector service
 
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
@@ -222,7 +230,7 @@ PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
   -H "Content-Type: application/json" \
   -d '{"name":"Mock Test"}' | jq -r '.id')
 
-# Verify health (both db and chroma should show "connected")
+# Verify health (both db and vector should show "connected")
 curl http://localhost:8000/health
 
 # Upload a PDF and ask a question (mock providers, no API key)
@@ -242,18 +250,18 @@ For private / on-premise scenarios the LLM can run entirely on local hardware vi
 `OllamaLLMProvider` calls the native Ollama HTTP API (`/api/chat`) directly.
 
 ```bash
-# 1. Install and start Ollama, then pull the model
-ollama serve                       # starts the local server on :11434
-ollama pull qwen2.5:7b-instruct
-
-# 2. Point the app at Ollama (.env)
+# 1. Point the app at Ollama (.env)
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-# Docker Compose uses this inside the backend container.
-DOCKER_OLLAMA_BASE_URL=http://host.docker.internal:11434
+# Docker Compose uses the bundled ollama service inside the backend container.
+DOCKER_OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
 # Embeddings are independent — keep EMBEDDING_PROVIDER=mock (offline) or =openai
 EMBEDDING_PROVIDER=mock
+
+# 2. Start compose, then pull the model into the ollama_data volume
+docker compose up -d ollama
+docker compose exec ollama ollama pull qwen2.5:7b-instruct
 ```
 
 That is the only change required — no application code changes. If the Ollama server
@@ -263,8 +271,8 @@ Ollama 服務已啟動"*) rather than hanging or returning a fabricated answer.
 > **Scope:** This provider covers the **LLM** only. Embeddings are still selected by
 > `EMBEDDING_PROVIDER` (`openai` / `mock`). A fully local stack would also need a local
 > embedding provider — the `EmbeddingProvider` interface supports adding one the same way.
-> Ollama is **not required for the normal demo**: the default mock mode runs the full
-> pipeline with no external dependencies.
+> For interviews, keep `LLM_PROVIDER=ollama` and `EMBEDDING_PROVIDER=mock` to demonstrate
+> local-model operation while keeping vector search deterministic and dependency-light.
 
 ## Local Development (without Docker)
 
@@ -273,7 +281,7 @@ cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Start PostgreSQL and ChromaDB separately, then:
+# Start PostgreSQL and PostgreSQL + pgvector separately, then:
 PYTHONPATH=. uvicorn app.main:app --reload
 
 # Run tests
@@ -353,8 +361,8 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > in `demo_data/documents/` for demo purposes. Files in this directory are excluded
 > from git tracking. Uploaded files are stored under `backend/data/uploads/`.
 
-> **Embedding:** On upload, each chunk is embedded and indexed in ChromaDB. In mock
-> mode (the default) no API key is needed. In openai mode this requires a valid
+> **Embedding:** On upload, each chunk is embedded and indexed in PostgreSQL + pgvector. In mock
+> embedding mode (the default for local Ollama demos) no API key is needed. In openai mode this requires a valid
 > `OPENAI_API_KEY` in `.env`; without it the upload fails with a clear error (no
 > half-written state).
 
@@ -535,7 +543,7 @@ BACKEND_URL=http://localhost:8000 npm run dev
 # or: npm run preview        (production preview on :8501)
 ```
 
-## Demo Flow (end-to-end, mock mode)
+## Demo Flow (end-to-end, local Ollama mode)
 
 ```bash
 # 1. Create a project
@@ -606,14 +614,13 @@ How to use this trail when something looks wrong:
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `make up` fails with `.env 不存在` | First-time setup not done | `cp .env.example .env` then retry |
-| `bind: address already in use` on port 5432 / 8000 / 8001 / 8501 | Local Postgres / another dev server is holding the port | Stop the conflicting process, or change the **host** side of the port mapping in `docker-compose.yml` (e.g. `"5433:5432"`) |
+| `bind: address already in use` on port 5432 / 8000 / 8501 | Local Postgres / another dev server is holding the port | Stop the conflicting process, or change the **host** side of the port mapping in `docker-compose.yml` (e.g. `"5433:5432"`) |
 | `backend` container restarts in a loop | Schema migration failed (postgres not actually ready, or volume from older schema lingers) | `make logs-backend` to see the traceback; if schema changed, `make clean` wipes volumes (destructive) |
-| `chromadb` healthcheck never goes healthy | First boot can take 10-20s; on slow disks longer | Wait; if still red after 60s: `make logs-chromadb`. Persistent failure is usually a corrupted volume — `make clean` resets it |
 | Frontend shows `無法連線到後端 (http://backend:8000)` | Backend container is down or not yet healthy | `make ps` to check status; `make logs-backend` for the cause |
 | Chat / analysis returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
-| Ollama mode can't reach the server from container | Ollama is not running on the host, or you need a different container URL | Start `ollama serve` on the host, or set `DOCKER_OLLAMA_BASE_URL` for a different endpoint |
+| Ollama mode can't reach the server from container | The `ollama` service is not healthy, the model has not been pulled, or `DOCKER_OLLAMA_BASE_URL` points to the wrong endpoint | `docker compose ps ollama`; then run `docker compose exec ollama ollama pull qwen2.5:7b-instruct`, or set `DOCKER_OLLAMA_BASE_URL` for an external endpoint |
 | Tests fail with `ModuleNotFoundError` when running `make test-local` | Local `.venv` missing or stale | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
-| Postgres / Chroma data unexpectedly empty after restart | Someone ran `docker compose down -v` or `make clean` | Volumes were dropped on purpose — re-ingest. Use `make down` (without `-v`) to preserve data |
+| Postgres / pgvector data unexpectedly empty after restart | Someone ran `docker compose down -v` or `make clean` | Volumes were dropped on purpose — re-ingest. Use `make down` (without `-v`) to preserve data |
 | Windows / WSL2 path issues with bind mounts | Volume mounts use Linux paths | Run all commands from inside WSL2, not from PowerShell |
 
 ## Implementation Status
@@ -621,7 +628,7 @@ How to use this trail when something looks wrong:
 - [x] Step 1: Project scaffold, health endpoint, Docker Compose
 - [x] Step 2-pre: PostgreSQL data model (10 tables, ORM models, Pydantic schemas, SQL migration)
 - [x] Step 2: PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
-- [x] Step 2b: Embedding + ChromaDB vector storage & search (`GET /projects/{id}/search`)
+- [x] Step 2b: Embedding + PostgreSQL + pgvector vector storage & search (`GET /projects/{id}/search`)
 - [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
 - [x] Prompt 7: RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
 - [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows

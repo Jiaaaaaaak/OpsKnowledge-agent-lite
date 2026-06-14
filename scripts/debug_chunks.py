@@ -6,7 +6,7 @@
   `DocumentIngestionService._extract_pages`、`._join_pages`、`._chunk_text_by_section`，
   並完全比照 `DocumentIngestionService.ingest()` 的流程，
   確保這裡看到的結果與實際匯入時一致。
-- 不連線資料庫、不連線 ChromaDB、不產生 embedding；純粹解析 PDF 並印出切塊結果。
+- 不連線資料庫、不連線 PostgreSQL + pgvector、不產生 embedding；純粹解析 PDF 並印出切塊結果。
 
 用法（建議用 backend 的 venv，才有 pypdf 等相依套件）：
     backend/.venv/bin/python scripts/debug_chunks.py

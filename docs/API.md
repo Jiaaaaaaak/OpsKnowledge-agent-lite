@@ -12,7 +12,7 @@ Interactive docs: `http://localhost:8000/docs`
 
 ### `GET /health`
 
-Returns service status including DB and ChromaDB connectivity.
+Returns service status including DB and PostgreSQL + pgvector connectivity.
 
 **Response 200**
 ```json
@@ -20,14 +20,14 @@ Returns service status including DB and ChromaDB connectivity.
   "status": "ok",
   "version": "0.1.0",
   "db": "connected",
-  "chroma": "connected"
+  "vector": "connected"
 }
 ```
 
 | Field | Values | Description |
 |---|---|---|
 | db | `connected` / `unavailable` | PostgreSQL reachability |
-| chroma | `connected` / `unavailable` | ChromaDB reachability (`/heartbeat` probe) |
+| vector | `connected` / `unavailable` | PostgreSQL `vector` extension availability |
 
 ---
 
@@ -120,7 +120,7 @@ Semantic search over documents.
 
 ### `POST /projects/{project_id}/upload/documents`
 
-Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, stored in PostgreSQL, then embedded and indexed in ChromaDB for retrieval.
+Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, stored in PostgreSQL, then embedded and indexed in PostgreSQL + pgvector for retrieval.
 
 **Path Parameter**
 
@@ -156,9 +156,9 @@ Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, 
 - Each chunk's metadata contains `filename`, `page_number`, `chunk_size`
 
 **Embedding & vector storage**
-- After chunking, each chunk is embedded (model from `EMBEDDING_MODEL`) and upserted into ChromaDB.
-- The ChromaDB id equals the `document_chunks.id` UUID, so a search hit maps 1:1 back to its PostgreSQL row.
-- ChromaDB metadata: `project_id`, `document_id`, `chunk_id`, `filename`, `chunk_index`.
+- After chunking, each chunk is embedded (model from `EMBEDDING_MODEL`) and upserted into PostgreSQL + pgvector.
+- The PostgreSQL + pgvector id equals the `document_chunks.id` UUID, so a search hit maps 1:1 back to its PostgreSQL row.
+- PostgreSQL + pgvector metadata: `project_id`, `document_id`, `chunk_id`, `filename`, `chunk_index`.
 - Embedding runs before the DB commit — if it fails, the upload is aborted with no half-written state.
 
 **Errors**
@@ -219,7 +219,7 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 |---|---|
 | chunk_id | UUID of the chunk — equals `document_chunks.id` in PostgreSQL |
 | content | The chunk text stored alongside the vector |
-| metadata | ChromaDB metadata (see embedding section above) |
+| metadata | PostgreSQL + pgvector metadata (see embedding section above) |
 | distance | Cosine distance from the query (lower = closer) |
 | score | `1 - distance` convenience similarity score |
 
@@ -303,7 +303,7 @@ Upload an incident ticket file in CSV, Excel, or JSON format. Runs ETL and store
 ### `POST /projects/{project_id}/chat`
 
 Ask a question over a project's embedded documents. The endpoint retrieves the most
-relevant chunks from ChromaDB, builds a grounded prompt, and calls the configured LLM.
+relevant chunks from PostgreSQL + pgvector, builds a grounded prompt, and calls the configured LLM.
 Every request is logged to the `agent_runs` and `tool_calls` tables for auditability.
 
 **Path Parameter**
@@ -323,7 +323,7 @@ Every request is logged to the `agent_runs` and `tool_calls` tables for auditabi
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | question | string | ✅ | — | The natural-language question (min length 1) |
-| top_k | integer | — | 5 | Number of chunks to retrieve from ChromaDB (1–50) |
+| top_k | integer | — | 5 | Number of chunks to retrieve from PostgreSQL + pgvector (1–50) |
 
 **Example request**
 ```bash

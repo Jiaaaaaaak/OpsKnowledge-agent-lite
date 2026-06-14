@@ -24,7 +24,7 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 
 ### Included
 
-- [x] Upload PDF documents → parse → chunk → embed → store in ChromaDB
+- [x] Upload PDF documents → parse → chunk → embed → store in PostgreSQL + pgvector
 - [x] Semantic search / RAG Q&A over documents
 - [x] Upload CSV/Excel/JSON incident records → ETL → PostgreSQL
 - [x] AI classification of incident category
@@ -32,7 +32,7 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 - [x] AI insight generation and action item suggestions
 - [x] Logging of every AI call to PostgreSQL (model, tokens, latency, result)
 - [x] React dashboard: Upload / Chat / Dashboard / Agent Logs
-- [x] Docker Compose deployment (PostgreSQL, ChromaDB, backend, frontend)
+- [x] Docker Compose deployment (PostgreSQL, PostgreSQL + pgvector, backend, frontend)
 
 ### Out of Scope (for this POC)
 

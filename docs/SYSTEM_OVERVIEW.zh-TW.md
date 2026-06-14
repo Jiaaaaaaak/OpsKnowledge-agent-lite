@@ -16,8 +16,7 @@
 |------|--------------------------|------|
 | frontend | 8501 → 8501 | React UI（使用者入口）|
 | backend | 8000 → 8000 | FastAPI（`http://localhost:8000/docs`）|
-| postgres | 5432 → 5432 | PostgreSQL 16 |
-| chromadb | 8001 → 8000 | 向量資料庫 |
+| postgres + pgvector | 5432 → 5432 | PostgreSQL 16 + 向量檢索 |
 
 ---
 
@@ -90,7 +89,7 @@ PostgreSQL 存**結構化、需要查詢/關聯的資料**。資料表定義在 
 |--------|--------|
 | `projects` | 專案 |
 | `documents` | 上傳的 PDF 檔案 metadata 與磁碟路徑 |
-| `document_chunks` | PDF 切出來的文字片段（**原文**；它的 `id` 與 ChromaDB 的向量 id 一致，見 `document_service.py:116`）|
+| `document_chunks` | PDF 切出來的文字片段（**原文**；它的 `id` 與 PostgreSQL + pgvector 的向量 id 一致，見 `document_service.py:116`）|
 | `raw_records` | 工單原始 JSON（ETL 前）|
 | `cleaned_records` | ETL 正規化後的工單 |
 | `incident_analysis` | 每筆工單的分類/嚴重度/情緒/信心分數 |
@@ -99,20 +98,20 @@ PostgreSQL 存**結構化、需要查詢/關聯的資料**。資料表定義在 
 | `agent_runs` | **每次 AI 執行的紀錄**（模型、輸入輸出、延遲、狀態）|
 | `tool_calls` | 每次執行中各工具的呼叫紀錄 |
 
-> 重點：`document_chunks` 存**文字本身**，ChromaDB 存的是這些文字的**向量**，兩者用同一個 `chunk_id` 對應（`vector_store.py:11-19`）。
+> 重點：`document_chunks` 存**文字本身**，PostgreSQL + pgvector 存的是這些文字的**向量**，兩者用同一個 `chunk_id` 對應（`vector_store.py:11-19`）。
 
 ---
 
-## 6. ChromaDB 負責存什麼？
+## 6. PostgreSQL + pgvector 負責存什麼？
 
-ChromaDB 是**向量資料庫**，只負責「語意搜尋」：
+PostgreSQL + pgvector 是**向量資料庫**，只負責「語意搜尋」：
 
 - 封裝在 `backend/app/services/vector_store.py`。
 - 存的內容（`vector_store.py:49-69` 的 `add_chunks`）：每個 chunk 的**向量（embedding）**、原文、以及 metadata（`project_id`、`document_id`、`chunk_id`、`filename`、`chunk_index`）。
-- 用途（`vector_store.py:71-97` 的 `search`）：把問題轉成向量，用 cosine 相似度找出最相關的 top-k chunk，並用 `where={"project_id": ...}` 限制只搜尋該專案範圍。
-- 連線設定：host/port/collection 來自 `backend/app/core/config.py:34-37`。
+- 用途（`vector_store.py` 的 `search`）：把問題轉成向量，用 pgvector cosine distance 找出最相關的 top-k chunk，並透過 SQL 條件限制只搜尋該專案範圍。
+- 連線設定沿用 PostgreSQL 的 `POSTGRES_*`；pgvector 是 PostgreSQL extension，不是獨立服務或 collection。
 
-> 一句話：**PostgreSQL 回答「有哪些資料」，ChromaDB 回答「哪段文字跟這個問題最像」。**
+> 一句話：**PostgreSQL 回答「有哪些資料」，PostgreSQL + pgvector 回答「哪段文字跟這個問題最像」。**
 
 ---
 
@@ -153,7 +152,7 @@ ChromaDB 是**向量資料庫**，只負責「語意搜尋」：
 
 - 想接的廠商**不是 OpenAI 相容、也不是 Ollama**（例如要自訂 Anthropic 原生格式）→ 在 `llm_service.py` 新增一個 `LLMProvider` 子類別，並在 `get_llm_provider()` 加分支。
 - 想換 embedding 廠商 → 在 `embedding_service.py` 同理新增子類別。
-- 換了 embedding 模型導致**向量維度改變**（mock 是 384）→ 留意 `config.py:47` 的 `mock_embedding_dim`，且既有 ChromaDB collection 需重建（維度不可混用）。
+- 換了 embedding 模型導致**向量維度改變**（目前 pgvector 欄位是 384）→ 同步調整 `EMBEDDING_DIMENSIONS`、`document_chunks.embedding vector(...)` 與既有資料重建策略。
 
 > 結論：正常情況**只改 `.env`**；`config.py` 已有對應欄位；程式入口檔 `chat.py`/`analyze.py` 透過 `get_llm_provider()` 取得 provider，完全不需更動。
 
@@ -183,7 +182,7 @@ ChromaDB 是**向量資料庫**，只負責「語意搜尋」：
 ChatPage.tsx → services/ →（HTTP via Vite proxy）→ main.py → api/chat.py
     → services/vector_store.py + services/embedding_service.py + services/llm_service.py
     → db/session.py + models/*
-    → ChromaDB / PostgreSQL → 原路回傳
+    → PostgreSQL + pgvector / PostgreSQL → 原路回傳
 ```
 
 ---
@@ -205,7 +204,7 @@ flowchart TD
 
     Chat -->|"1 檢索 top-k"| VS
     VS -->|"問題轉向量"| Emb
-    VS <-->|"相似度搜尋"| Chroma[("ChromaDB<br/>向量 + 原文 + metadata")]
+    VS <-->|"相似度搜尋"| pgvector[("PostgreSQL + pgvector<br/>向量 + 原文 + metadata")]
     Chat -->|"2 組 prompt + 3 產生答案"| LLM
     Chat -->|"4 寫觀測紀錄"| PG[("PostgreSQL<br/>projects / chunks /<br/>records / analysis /<br/>agent_runs / tool_calls")]
     Chat -->|"回 answer + citations"| Client
@@ -222,7 +221,7 @@ flowchart TD
         Tools --> PG
     end
 
-    style Chroma fill:#e1f5ff
+    style pgvector fill:#e1f5ff
     style PG fill:#ffe1e1
 ```
 

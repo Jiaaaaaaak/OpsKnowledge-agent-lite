@@ -24,7 +24,7 @@ graph TD
 
     subgraph Storage["Storage"]
         PG[(PostgreSQL\n:5432)]
-        CHROMA[(ChromaDB\n:8001)]
+        PGVECTOR[(PostgreSQL + pgvector\n:5432)]
     end
 
     UI_Upload --> API
@@ -37,7 +37,7 @@ graph TD
     API --> SVC_AI
     API --> SVC_LOG
 
-    SVC_DOC --> CHROMA
+    SVC_DOC --> PGVECTOR
     SVC_DOC --> LLM
     SVC_ETL --> PG
     SVC_AI --> LLM
@@ -50,9 +50,9 @@ graph TD
 | Component | Responsibility |
 |---|---|
 | `api/` | Route definitions, request validation, response serialization |
-| `services/document_service.py` | PDF parsing, chunking, then embedding + ChromaDB storage (via injected `VectorStoreService`) |
+| `services/document_service.py` | PDF parsing, chunking, then embedding + PostgreSQL + pgvector storage (via injected `VectorStoreService`) |
 | `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
-| `services/vector_store.py` | `VectorStoreService` wrapping ChromaDB: upsert chunk vectors, project-scoped similarity search |
+| `services/vector_store.py` | `VectorStoreService` wrapping PostgreSQL + pgvector: upsert chunk vectors, project-scoped similarity search |
 | `services/llm_service.py` | `LLMProvider` interface + `OpenAICompatibleLLMProvider`; `build_rag_prompt` and `format_citations` pure functions |
 | `services/etl_service.py` | CSV/Excel/JSON ingestion, normalization, PostgreSQL insertion |
 | `services/ai_service.py` | Orchestrates LLM tool calls for classification, scoring, insights |
@@ -82,8 +82,8 @@ POST /projects/{id}/upload/documents
   │    └─ Each chunk (explicit uuid) → document_chunks INSERT
   │         metadata: { filename, page_number, chunk_size }
   │
-  ├─ VectorStoreService.add_chunks()  embed all chunks → ChromaDB upsert
-  │    ├─ id = document_chunks.id  (same UUID in PG and ChromaDB)
+  ├─ VectorStoreService.add_chunks()  embed all chunks → PostgreSQL + pgvector upsert
+  │    ├─ id = document_chunks.id  (same UUID in PG and PostgreSQL + pgvector)
   │    ├─ metadata: { project_id, document_id, chunk_id, filename, chunk_index }
   │    └─ Runs BEFORE db.commit() — embedding failure aborts the upload (no half-written state)
   │
@@ -91,7 +91,7 @@ POST /projects/{id}/upload/documents
        { document_id, filename, page_count, chunk_count, source_path }
 
 GET /projects/{id}/search?query=...&top_k=5
-  └─ embed query → ChromaDB query (where project_id == {id}) → top-k chunks
+  └─ embed query → PostgreSQL + pgvector query (where project_id == {id}) → top-k chunks
        each hit: { chunk_id, content, metadata, distance, score }
        chunk_id maps 1:1 back to the document_chunks row in PostgreSQL
 ```
@@ -104,7 +104,7 @@ POST /projects/{id}/chat  { question, top_k }
   ├─ Project 404 guard
   │
   ├─ VectorStoreService.search(project_id, question, top_k)
-  │    └─ embed question → ChromaDB query (where project_id == {id}) → top-k hits
+  │    └─ embed question → PostgreSQL + pgvector query (where project_id == {id}) → top-k hits
   │         each hit: { chunk_id, content, metadata, distance, score }
   │
   ├─ build_rag_prompt(hits)
@@ -205,8 +205,7 @@ Safety properties:
 |---|---|
 | FastAPI backend | 8000 |
 | React frontend (Vite + TypeScript + Tailwind) | 8501 |
-| PostgreSQL | 5432 |
-| ChromaDB | 8001 |
+| PostgreSQL + pgvector | 5432 |
 
 ## LLMProvider Design
 

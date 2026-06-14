@@ -26,7 +26,7 @@
 
 | 能力 | 說明 |
 |---|---|
-| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、透過 ChromaDB 檢索 |
+| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、透過 PostgreSQL + pgvector 檢索 |
 | 事件 ETL | 上傳 CSV／Excel／JSON 工單 → 正規化、清洗、寫入 PostgreSQL |
 | AI 分析 | 事件分類、嚴重度評分、產生洞察與行動項目 |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
@@ -36,7 +36,7 @@
 
 - **後端**：Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2
 - **資料庫**：PostgreSQL 16
-- **向量資料庫**：ChromaDB
+- **向量資料庫**：PostgreSQL + pgvector
 - **AI**：相容 OpenAI 介面（可切換至 Ollama）
 - **前端**：React (Vite + TypeScript + Tailwind CSS)
 - **基礎設施**：Docker Compose
@@ -45,21 +45,25 @@
 
 四個步驟，除 `.env` 外不需任何手動設定：
 
+預設面試／展示路線是地端優先：Ollama 負責 LLM，mock 384 維 embedding 負責 pgvector 搜尋。
+
 ```bash
-# 1. 複製 env 範本（預設 mock 模式，不需 API key）
+# 1. 複製 env 範本（預設 Ollama LLM + mock embedding）
 cp .env.example .env
 
 # 2.（選用）若要使用真實模型，編輯 .env
 #    - hosted OpenAI：LLM_PROVIDER=openai，並填入 OPENAI_API_KEY
-#    - host-side Ollama：LLM_PROVIDER=ollama，backend 容器會用
-#      DOCKER_OLLAMA_BASE_URL（預設 http://host.docker.internal:11434）
+#    - 地端展示維持 LLM_PROVIDER=ollama，使用 Docker Compose 內建 Ollama
 
-# 3. 建置並啟動完整 stack（postgres、chromadb、backend、frontend）
-docker compose up --build
+# 3. 建置並啟動完整 stack（postgres + pgvector、ollama、backend、frontend）
+docker compose up --build -d
 # 或用內附的 Makefile：
 make up
 
-# 4. 開啟 UI
+# 4. 將地端模型下載進 ollama_data volume
+make pull-ollama
+
+# 5. 開啟 UI
 #    前端（React）：http://localhost:8501
 #    後端文件：          http://localhost:8000/docs
 #    後端健康檢查：      http://localhost:8000/health
@@ -70,7 +74,7 @@ make up
 docker compose down    # 或：make down
 ```
 
-清掉資料重來（破壞性 — 會刪除 postgres + chroma volume）：
+清掉資料重來（破壞性 — 會刪除 postgres 資料與已下載的 Ollama 模型）：
 ```bash
 make clean              # 會詢問確認
 ```
@@ -81,8 +85,8 @@ make clean              # 會詢問確認
 |---|---|---|---|
 | frontend（React） | **8501** | 8501 | 由 `frontend/Dockerfile` 建置（`vite preview`） |
 | backend（FastAPI） | **8000** | 8000 | 由 `backend/Dockerfile` 建置 |
-| postgres | **5432** | 5432 | `postgres:16-alpine` |
-| chromadb | **8001** | 8000 | `chromadb/chroma:0.5.23`（host 8001 避免與 backend 衝突） |
+| postgres + pgvector | **5432** | 5432 | `pgvector/pgvector:pg16` |
+| ollama | **11434** | 11434 | `ollama/ollama` |
 
 ### 啟動順序
 
@@ -90,8 +94,8 @@ make clean              # 會詢問確認
 
 ```
 postgres (pg_isready)  ─┐
-                        ├─► backend（兩者 service_healthy 後才起）
-chromadb (/heartbeat)  ─┘             │
+                        ├─► backend（依賴 service_healthy 後才起）
+ollama (ollama list)   ─┘             │
                                       └─► frontend（backend /health 通過後才起）
 ```
 
@@ -104,9 +108,11 @@ schema 在 API 開放前就會建好。
 make up           # 背景建置並啟動
 make down         # 停止（保留資料）
 make logs         # tail 全部服務（logs-backend / logs-frontend / ... 看單一）
+make logs-ollama  # tail Ollama logs
 make ps           # 看 container 狀態
 make health       # curl /health 並 pretty-print
 make test         # 在 backend 容器內跑 pytest
+make pull-ollama  # 將預設地端 LLM 模型下載進 ollama_data
 make psql         # 開 postgres 容器的 psql shell
 make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 ```
@@ -115,24 +121,24 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 
 | 模式 | 環境變數 | API key | 說明 |
 |---|---|---|---|
-| **mock**（預設） | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 確定性本地 provider；可完全離線跑完整流程 |
-| **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | 呼叫 OpenAI 相容 API 取得真實嵌入與回答 |
-| **ollama**（LLM） | `LLM_PROVIDER=ollama`（搭配 `EMBEDDING_PROVIDER=openai` 或 `mock`） | LLM 不需 API key | 呼叫本機 Ollama 伺服器取得回答 — 供私有／地端部署使用 |
+| **ollama-local**（預設） | `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock` | 不需要 | 地端 Ollama 回答 + 確定性 384 維 embedding 寫入 pgvector |
+| **mock** | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 完全確定性的離線 provider；適合測試 |
+| **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | hosted LLM + OpenAI 相容 embedding；embedding 會要求 384 維 |
 
-> **雲端 API vs 本地模型。** `openai` provider 用於**快速 POC** — 設定成本最低、
-> 開箱即用的品質佳。`ollama` provider 則為**私有／地端部署**預備，讓 LLM 在客戶
-> 網路內執行、資料不離開主機。切換只需修改一行 `.env`（`LLM_PROVIDER`），不需更動
-> 任何應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
+> **面試展示採地端優先。** 主要路線使用 `ollama` 回答、`mock` embedding 做穩定的
+> 本地向量搜尋。需要 hosted model 品質時仍可切到 `openai`。切換只需修改 `.env`，
+> 不需更動應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
 
-### 從 mock 模式切換到 OpenAI
+### 從地端 Ollama 模式切換到 OpenAI
 
-系統預設以 **mock 模式**出貨。要接上真正的 OpenAI 相容 API：
+系統預設以 **Ollama LLM + mock embedding** 出貨。要接上真正的 OpenAI 相容 API：
 
 1. 在專案根目錄 `.env`（即 `cp .env.example .env` 建立的那份）設定 provider 與金鑰
    （model／base URL 已有預設值）。設定已錨定到這份根目錄 `.env`，不論從哪個目錄啟動都會讀到：
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
+   EMBEDDING_DIMENSIONS=384
    OPENAI_API_KEY=sk-...你的真實金鑰...
    # 選填覆寫：
    # OPENAI_BASE_URL=https://api.openai.com/v1
@@ -149,21 +155,22 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
    並回報 `PASS` / `FAIL`。它**絕不會印出 API 金鑰**（只顯示遮罩後的摘要），
    失敗時以非 0 結束碼結束，可用於 CI；金鑰缺漏或無效時會回傳清楚的錯誤。
 
-> 切回 mock 模式同樣只需改一行（`LLM_PROVIDER=mock`、`EMBEDDING_PROVIDER=mock`），
-> 不涉及任何應用程式碼。
+> `EMBEDDING_DIMENSIONS=384` 很重要，因為 pgvector 欄位是 `vector(384)`。
+> 切回地端展示模式則是：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`。
 
 ### 主機名稱：Docker vs 本機
 
-應用程式透過 `POSTGRES_HOST` / `CHROMA_HOST` 連線到 PostgreSQL 與 ChromaDB
+應用程式透過 `POSTGRES_*` 設定連線到 PostgreSQL + pgvector
 （沒有 `DATABASE_URL`，詳見 `backend/app/core/config.py`）。
 
-- **Docker Compose** 會將其覆寫為服務名稱 `postgres` 與 `chromadb`
-  （定義於 `docker-compose.yml`），因此容器網路不需要修改 `.env`。
+- **Docker Compose** 會將 `POSTGRES_HOST` 覆寫為 `postgres`。pgvector 是該
+  PostgreSQL service 裡的 extension，不是獨立 hostname。
+- **Docker Compose** 會將 `OLLAMA_BASE_URL` 覆寫為 `http://ollama:11434`。
 - **本機（不使用 Docker）** 使用 `.env.example` 預設的 `localhost`。
 
 ## Mock 模式（不需 API key）
 
-如果還沒申請 OpenAI 或 Ollama 帳號，可以用確定性的 mock provider 在本地跑完整後端流程：
+如果要完全確定性測試、不要發出地端模型請求，可以把兩個 provider 都切成 mock：
 
 | Provider | 環境變數 | 行為 |
 |---|---|---|
@@ -180,7 +187,7 @@ LLM_PROVIDER=mock
 ### Mock 模式能跑什麼
 - Backend 單元測試，零外部呼叫
 - `POST /projects/{id}/upload/documents` — PDF 解析、切 chunk、寫入 PostgreSQL；
-  embedding 在本地產生並存入 ChromaDB（ChromaDB 仍需執行中）
+  embedding 在本地產生並存入 PostgreSQL + pgvector（PostgreSQL + pgvector 仍需執行中）
 - `GET /projects/{id}/search` — 用 mock 向量做檢索並回結果
 - `POST /projects/{id}/chat` — 回確定性的 mock 答案 + 引用；
   `agent_runs` 與 `tool_calls` 仍會寫入 PostgreSQL
@@ -195,11 +202,11 @@ cd backend
 PYTHONPATH=. pytest tests/ -v
 ```
 
-### 本地快速 smoke test（需要 PostgreSQL + ChromaDB 在跑）
+### 本地快速 smoke test（需要 PostgreSQL + pgvector 在跑）
 ```bash
 cp .env.example .env
 # 編輯 .env：設定 EMBEDDING_PROVIDER=mock  LLM_PROVIDER=mock
-#           並設定 POSTGRES_* 與 CHROMA_* 指向你的本地服務
+#           並設定 POSTGRES_* 指向你的 PostgreSQL + pgvector 服務
 
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
@@ -214,7 +221,7 @@ PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
   -H "Content-Type: application/json" \
   -d '{"name":"Mock Test"}' | jq -r '.id')
 
-# 驗證 health（db 與 chroma 應該都顯示 "connected"）
+# 驗證 health（db 與 vector 應該都顯示 "connected"）
 curl http://localhost:8000/health
 
 # 上傳 PDF 並問問題（mock provider、不需 API key）
@@ -234,18 +241,18 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
 API（`/api/chat`）。
 
 ```bash
-# 1. 安裝並啟動 Ollama，再下載模型
-ollama serve                       # 在 :11434 啟動本地伺服器
-ollama pull qwen2.5:7b-instruct
-
-# 2. 讓應用程式指向 Ollama（.env）
+# 1. 讓應用程式指向 Ollama（.env）
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-# Docker Compose 會在 backend 容器內使用此位址。
-DOCKER_OLLAMA_BASE_URL=http://host.docker.internal:11434
+# Docker Compose 會在 backend 容器內使用內建 ollama service。
+DOCKER_OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
 # embedding 與 LLM 獨立 — 可維持 EMBEDDING_PROVIDER=mock（離線）或 =openai
 EMBEDDING_PROVIDER=mock
+
+# 2. 啟動 compose，並把模型下載進 ollama_data volume
+docker compose up -d ollama
+docker compose exec ollama ollama pull qwen2.5:7b-instruct
 ```
 
 這是唯一需要的改動 — 不需更動任何應用程式碼。若 Ollama 伺服器無法連線，`/chat`
@@ -254,8 +261,8 @@ EMBEDDING_PROVIDER=mock
 
 > **範圍：** 這個 provider 只涵蓋 **LLM**。embedding 仍由 `EMBEDDING_PROVIDER`
 > （`openai` / `mock`）選擇。要做到完全地端，還需要一個本地 embedding provider —
-> `EmbeddingProvider` 介面支援以相同方式新增。Ollama **不是一般展示的必要條件**：
-> 預設的 mock 模式即可在零外部相依的情況下跑完整個流程。
+> `EmbeddingProvider` 介面支援以相同方式新增。面試展示建議維持
+> `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`：可展示地端模型操作，同時讓向量搜尋穩定且相依較少。
 
 ## 本機開發（不使用 Docker）
 
@@ -264,7 +271,7 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 另行啟動 PostgreSQL 與 ChromaDB 後，執行：
+# 另行啟動 PostgreSQL 與 PostgreSQL + pgvector 後，執行：
 PYTHONPATH=. uvicorn app.main:app --reload
 
 # 執行測試
@@ -346,8 +353,8 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 > `demo_data/documents/` 供 Demo 使用。此目錄下的檔案不會納入 git 追蹤。
 > 上傳的檔案會儲存於 `backend/data/uploads/`。
 
-> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 ChromaDB。mock 模式（預設）不需要
-> API key。openai 模式則需要 `.env` 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以
+> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 PostgreSQL + pgvector。地端 Ollama
+> 展示預設使用 mock embedding，不需要 API key。openai 模式則需要 `.env` 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以
 > 清楚的錯誤訊息失敗（不留下半套資料）。
 
 ## Chat（RAG 問答）
@@ -594,14 +601,13 @@ ORDER BY ar.created_at DESC;
 | 症狀 | 可能原因 | 解法 |
 |---|---|---|
 | `make up` 跳 `.env 不存在` | 首次設定沒做 | `cp .env.example .env` 後重試 |
-| port 5432 / 8000 / 8001 / 8501 衝突 | 本機已有 Postgres / 另一個 dev server 佔用 | 停掉那個 process，或改 `docker-compose.yml` host 側的 port mapping（例 `"5433:5432"`） |
+| port 5432 / 8000 / 8501 衝突 | 本機已有 Postgres / 另一個 dev server 佔用 | 停掉那個 process，或改 `docker-compose.yml` host 側的 port mapping（例 `"5433:5432"`） |
 | `backend` 容器一直重啟 | Schema migration 失敗（postgres 還沒真的 ready，或舊 schema 卡 volume） | `make logs-backend` 看 traceback；如 schema 有變，`make clean` 砍 volume（破壞性） |
-| `chromadb` healthcheck 一直紅 | 首啟可能 10-20 秒；慢碟更久 | 等；超過 60 秒紅就 `make logs-chromadb`；持續失敗通常是 volume 損毀，`make clean` 重置 |
 | Frontend 顯示 `無法連線到後端 (http://backend:8000)` | Backend 容器 down 或還沒 healthy | `make ps` 看狀態；`make logs-backend` 找原因 |
 | Chat / analysis 跳 `OPENAI_API_KEY` 錯 | `.env` 設了 `LLM_PROVIDER=openai` 但 key 空 | 填 `OPENAI_API_KEY` 或改回 `LLM_PROVIDER=mock` |
-| Ollama 模式 backend 連不到 host | Linux Docker 預設不解析 `host.docker.internal` | 在 backend service 加 `extra_hosts: ["host.docker.internal:host-gateway"]`，或把 Ollama 也放進同一個 compose network |
+| Ollama 模式 backend 連不到服務 | `ollama` service 不健康、模型尚未下載，或 `DOCKER_OLLAMA_BASE_URL` 指到錯的 endpoint | 先看 `docker compose ps ollama`；再執行 `docker compose exec ollama ollama pull qwen2.5:7b-instruct`，或改 `DOCKER_OLLAMA_BASE_URL` 指到外部 endpoint |
 | `make test-local` 跳 `ModuleNotFoundError` | 本機 `.venv` 不存在或舊 | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
-| 重啟後 Postgres / Chroma 資料神祕消失 | 有人下了 `docker compose down -v` 或 `make clean` | volume 是被刻意刪掉的 — 重新匯入。下次用 `make down`（不帶 `-v`）保留資料 |
+| 重啟後 Postgres / pgvector 資料神祕消失 | 有人下了 `docker compose down -v` 或 `make clean` | volume 是被刻意刪掉的 — 重新匯入。下次用 `make down`（不帶 `-v`）保留資料 |
 | Windows / WSL2 bind mount 路徑問題 | Volume mount 用 Linux 路徑 | 所有指令都在 WSL2 內執行，不要用 PowerShell |
 
 ## 實作進度
@@ -609,7 +615,7 @@ ORDER BY ar.created_at DESC;
 - [x] 步驟 1：專案骨架、health 端點、Docker Compose
 - [x] 步驟 2-pre：PostgreSQL 資料模型（10 張資料表、ORM 模型、Pydantic 結構、SQL 遷移）
 - [x] 步驟 2：PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`）
-- [x] 步驟 2b：嵌入 + ChromaDB 向量儲存與搜尋（`GET /projects/{id}/search`）
+- [x] 步驟 2b：嵌入 + PostgreSQL + pgvector 向量儲存與搜尋（`GET /projects/{id}/search`）
 - [x] 步驟 3：事件 ETL（`POST /projects/{id}/upload/tickets` — CSV / Excel / JSON → PostgreSQL）
 - [x] Prompt 7：RAG chat API（`POST /projects/{id}/chat` — retrieval → LLM → 回答 + 引用）
 - [x] Prompt 7：可觀測性 — 每次 chat 請求都寫 `agent_runs` + `tool_calls`

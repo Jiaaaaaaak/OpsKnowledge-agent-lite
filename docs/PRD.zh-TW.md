@@ -24,7 +24,7 @@ IT／維運團隊需管理大量技術文件（手冊、SOP）與事件記錄（
 
 ### 包含項目
 
-- [x] 上傳 PDF 文件 → 解析 → 分塊 → 嵌入 → 存入 ChromaDB
+- [x] 上傳 PDF 文件 → 解析 → 分塊 → 嵌入 → 存入 PostgreSQL + pgvector
 - [x] 對文件進行語意搜尋 / RAG 問答
 - [x] 上傳 CSV/Excel/JSON 事件記錄 → ETL → PostgreSQL
 - [x] AI 對事件類別進行分類
@@ -32,7 +32,7 @@ IT／維運團隊需管理大量技術文件（手冊、SOP）與事件記錄（
 - [x] AI 洞察產生與行動項目建議
 - [x] 將每次 AI 呼叫記錄至 PostgreSQL（模型、tokens、延遲、結果）
 - [x] React 儀表板：Upload / Chat / Dashboard / Agent Logs
-- [x] Docker Compose 部署（PostgreSQL、ChromaDB、backend、frontend）
+- [x] Docker Compose 部署（PostgreSQL、PostgreSQL + pgvector、backend、frontend）
 
 ### 不在範圍內（此 POC）
 

@@ -12,7 +12,7 @@ Base URL：`http://localhost:8000`
 
 ### `GET /health`
 
-回傳服務狀態，包含資料庫與 ChromaDB 的連線狀況。
+回傳服務狀態，包含資料庫與 PostgreSQL + pgvector 的連線狀況。
 
 **Response 200**
 ```json
@@ -20,14 +20,14 @@ Base URL：`http://localhost:8000`
   "status": "ok",
   "version": "0.1.0",
   "db": "connected",
-  "chroma": "connected"
+  "vector": "connected"
 }
 ```
 
 | 欄位 | 可能值 | 說明 |
 |---|---|---|
 | db | `connected` / `unavailable` | PostgreSQL 連線狀態 |
-| chroma | `connected` / `unavailable` | ChromaDB 連線狀態（`/heartbeat` 探測） |
+| vector | `connected` / `unavailable` | PostgreSQL `vector` extension 可用狀態 |
 
 ---
 
@@ -120,7 +120,7 @@ Base URL：`http://localhost:8000`
 
 ### `POST /projects/{project_id}/upload/documents`
 
-上傳 PDF 技術手冊或 SOP 文件，自動抽取文字、分塊、儲存至 PostgreSQL，接著嵌入並索引至 ChromaDB 供檢索。
+上傳 PDF 技術手冊或 SOP 文件，自動抽取文字、分塊、儲存至 PostgreSQL，接著嵌入並索引至 PostgreSQL + pgvector 供檢索。
 
 **Path Parameter**
 
@@ -156,9 +156,9 @@ Base URL：`http://localhost:8000`
 - 每個 chunk metadata 包含 `filename`、`page_number`、`chunk_size`
 
 **嵌入與向量儲存**
-- 分塊後，每個 chunk 會被嵌入（模型取自 `EMBEDDING_MODEL`）並 upsert 至 ChromaDB。
-- ChromaDB 的 id 等同 `document_chunks.id` UUID，因此搜尋結果可 1:1 對回 PostgreSQL 資料列。
-- ChromaDB metadata：`project_id`、`document_id`、`chunk_id`、`filename`、`chunk_index`。
+- 分塊後，每個 chunk 會被嵌入（模型取自 `EMBEDDING_MODEL`）並 upsert 至 PostgreSQL + pgvector。
+- PostgreSQL + pgvector 的 id 等同 `document_chunks.id` UUID，因此搜尋結果可 1:1 對回 PostgreSQL 資料列。
+- PostgreSQL + pgvector metadata：`project_id`、`document_id`、`chunk_id`、`filename`、`chunk_index`。
 - 嵌入在 DB commit 前執行 — 若失敗則中止上傳，不留下半套資料。
 
 **錯誤**
@@ -219,7 +219,7 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 |---|---|
 | chunk_id | chunk 的 UUID — 等同 PostgreSQL 的 `document_chunks.id` |
 | content | 與向量一同儲存的 chunk 文字 |
-| metadata | ChromaDB metadata（見上方嵌入說明） |
+| metadata | PostgreSQL + pgvector metadata（見上方嵌入說明） |
 | distance | 與 query 的 cosine 距離（越小越接近） |
 | score | `1 - distance` 的相似度分數，方便排序顯示 |
 
@@ -302,7 +302,7 @@ SELECT * FROM document_chunks WHERE id = '<chunk_id>';
 
 ### `POST /projects/{project_id}/chat`
 
-對專案內已嵌入的文件提問。端點從 ChromaDB 取回最相關的 chunk，組裝有根據的 prompt，並呼叫設定的 LLM。
+對專案內已嵌入的文件提問。端點從 PostgreSQL + pgvector 取回最相關的 chunk，組裝有根據的 prompt，並呼叫設定的 LLM。
 每次請求皆記錄至 `agent_runs` 與 `tool_calls` 資料表，確保可稽核性。
 
 **Path Parameter**
@@ -322,7 +322,7 @@ SELECT * FROM document_chunks WHERE id = '<chunk_id>';
 | 欄位 | 型別 | 必填 | 預設值 | 說明 |
 |---|---|---|---|---|
 | question | string | ✅ | — | 自然語言問題（最少 1 個字元） |
-| top_k | integer | — | 5 | 從 ChromaDB 取回的 chunk 數量（1–50） |
+| top_k | integer | — | 5 | 從 PostgreSQL + pgvector 取回的 chunk 數量（1–50） |
 
 **範例請求**
 ```bash

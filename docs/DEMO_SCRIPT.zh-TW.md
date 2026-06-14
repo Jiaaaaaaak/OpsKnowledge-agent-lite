@@ -8,12 +8,13 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 8 分鐘（完整 walkth
 
 ## 事前準備（Demo 前約 1 分鐘，不計入 demo 時間）
 
-1. `cp .env.example .env` — 預設 mock 模式（不需 API key）。
-2. `docker compose up --build` — 等到 `opsknowledge_backend` 顯示
+1. `cp .env.example .env` — 預設 Ollama LLM + mock embedding。
+2. `docker compose up --build -d` — 等到 `opsknowledge_backend` 顯示
    `Uvicorn running on http://0.0.0.0:8000`。
-3. Smoke check：`curl http://localhost:8000/health` → `{"db":"connected","chroma":"connected"}`。
-4. 在瀏覽器開啟 `http://localhost:8501`。
-5. 準備好：
+3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` — 下載地端模型。
+4. Smoke check：`curl http://localhost:8000/health` → `{"db":"connected","vector":"connected"}`。
+5. 在瀏覽器開啟 `http://localhost:8501`。
+6. 準備好：
    - `demo_data/documents/` 內任一份 PDF（IT SOP / 操作手冊）
    - `demo_data/tickets/sample_incidents.csv`（repo 內附）
 
@@ -39,7 +40,7 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 8 分鐘（完整 walkth
 - **🎫 事件紀錄檔** tab → 上傳 `sample_incidents.csv` → **上傳事件紀錄檔**
   → metric 列顯示 `原始列數`、`清理後筆數`、`失敗筆數`。
 
-> 重點訴求：「PDF 走 chunk → embed → ChromaDB。Ticket 走欄位同義詞對應正規化
+> 重點訴求：「PDF 走 chunk → embed → PostgreSQL + pgvector。Ticket 走欄位同義詞對應正規化
 > 進 `cleaned_records`。一個 upload 按鈕背後是兩條獨立 pipeline。」
 
 ### 場景 3 · 知識庫問答（RAG）（30 秒）
@@ -93,8 +94,8 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 8 分鐘（完整 walkth
 
 ## 重點訴求（補問時可用）
 
-- **LLMProvider 抽象** — `LLM_PROVIDER=openai | ollama | mock` 切換後端，
-  零應用程式碼變動。同一套 UI 可以打 hosted API、本地 Ollama、或完全離線的 mock。
+- **地端優先的 LLMProvider 抽象** — 面試預設 `LLM_PROVIDER=ollama` 搭配
+  `EMBEDDING_PROVIDER=mock`。同一套 UI 仍可只改 `.env` 切到 hosted OpenAI 或完全 mock。
 - **Idempotent agent run** — 重新呼叫 `/analyze/incidents` 只會處理還沒在
   `incident_analysis` 內的紀錄，從不刪舊。
 - **LLM 邊界的 Pydantic 驗證** — 每筆結構化輸出都被驗證；失敗會被記到
@@ -110,7 +111,7 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 8 分鐘（完整 walkth
 
 | 失敗 | Fallback |
 |---|---|
-| ChromaDB 掛掉 | 跳過場景 3（Chat），其他流程照跑 |
-| OpenAI 額度用完 | 預設就是 mock 模式 — 沒風險 |
+| PostgreSQL + pgvector 掛掉 | 跳過場景 3（Chat），其他流程照跑 |
+| Ollama 模型尚未下載 | 執行 `docker compose exec ollama ollama pull qwen2.5:7b-instruct`；若需立刻 fallback，改 `LLM_PROVIDER=mock` |
 | 自帶 PDF 上傳失敗 | 改用預先放好在 `demo_data/documents/` 的公領域 PDF |
-| Demo 機器離線 | Mock 模式整個 stack 都可離線 — 沒外部依賴 |
+| Demo 機器離線 | 模型已事先下載時，Ollama + mock embedding 可全地端執行 |

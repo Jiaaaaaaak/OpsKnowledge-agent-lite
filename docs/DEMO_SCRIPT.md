@@ -8,12 +8,13 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 
 ## Setup (before demo, ~1 min — not counted in demo time)
 
-1. `cp .env.example .env` — defaults are mock mode (no API key needed).
-2. `docker compose up --build` — wait until `opsknowledge_backend` reports
+1. `cp .env.example .env` — defaults to Ollama LLM + mock embeddings.
+2. `docker compose up --build -d` — wait until `opsknowledge_backend` reports
    `Uvicorn running on http://0.0.0.0:8000`.
-3. Smoke check: `curl http://localhost:8000/health` → `{"db":"connected","chroma":"connected"}`.
-4. Open `http://localhost:8501` in browser.
-5. Have ready:
+3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` — pull the local model.
+4. Smoke check: `curl http://localhost:8000/health` → `{"db":"connected","vector":"connected"}`.
+5. Open `http://localhost:8501` in browser.
+6. Have ready:
    - A PDF in `demo_data/documents/` (any IT SOP / manual)
    - `demo_data/tickets/sample_incidents.csv` (ships with the repo)
 
@@ -39,7 +40,7 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 - Tab **Incident Tickets** → upload `sample_incidents.csv` → **Upload Tickets**
   → metrics row shows `raw_count`, `cleaned_count`, `failed_count`.
 
-> Talking point: "PDF is chunked → embedded → ChromaDB. Tickets are normalized via
+> Talking point: "PDF is chunked → embedded → PostgreSQL + pgvector. Tickets are normalized via
 > column-synonym mapping into `cleaned_records`. Both happen behind one upload click."
 
 ### Scene 3 · Knowledge Chat (RAG) (30s)
@@ -97,9 +98,9 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 
 ## Talking Points (use any if questions arise)
 
-- **LLMProvider abstraction** — `LLM_PROVIDER=openai | ollama | mock` swaps the
-  backend with no application code change. The same UI runs against a hosted API,
-  a local Ollama box, or fully offline mock providers.
+- **Local-first LLMProvider abstraction** — default interview mode is
+  `LLM_PROVIDER=ollama` with `EMBEDDING_PROVIDER=mock`. The same UI can still switch
+  to hosted OpenAI or fully deterministic mock providers with `.env` only.
 - **Idempotent agent run** — re-running `/analyze/incidents` only processes
   records not yet in `incident_analysis`. Never deletes prior analysis.
 - **Pydantic at the LLM boundary** — every structured output is validated; failures
@@ -115,7 +116,7 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 
 | Failure | Fallback |
 |---|---|
-| ChromaDB down | Skip Scene 3 (Chat); the rest of the flow still works |
-| OpenAI quota exhausted | Already on mock mode by default — no risk |
+| PostgreSQL + pgvector down | Skip Scene 3 (Chat); the rest of the flow still works |
+| Ollama model missing | Run `docker compose exec ollama ollama pull qwen2.5:7b-instruct`; switch `LLM_PROVIDER=mock` if you need an immediate fallback |
 | Upload fails on a custom PDF | Use the public-domain PDF you pre-staged in `demo_data/documents/` |
-| Demo machine offline | The whole stack runs offline in mock mode — no external dependency |
+| Demo machine offline | Ollama + mock embeddings run locally once the model is already pulled |

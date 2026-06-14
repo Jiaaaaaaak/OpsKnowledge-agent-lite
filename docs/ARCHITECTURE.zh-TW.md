@@ -24,7 +24,7 @@ graph TD
 
     subgraph Storage["Storage"]
         PG[(PostgreSQL\n:5432)]
-        CHROMA[(ChromaDB\n:8001)]
+        PGVECTOR[(PostgreSQL + pgvector\n:5432)]
     end
 
     UI_Upload --> API
@@ -37,7 +37,7 @@ graph TD
     API --> SVC_AI
     API --> SVC_LOG
 
-    SVC_DOC --> CHROMA
+    SVC_DOC --> PGVECTOR
     SVC_DOC --> LLM
     SVC_ETL --> PG
     SVC_AI --> LLM
@@ -50,9 +50,9 @@ graph TD
 | 元件 | 職責 |
 |---|---|
 | `api/` | 路由定義、請求驗證、回應序列化 |
-| `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 ChromaDB（透過注入的 `VectorStoreService`） |
+| `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 PostgreSQL + pgvector（透過注入的 `VectorStoreService`） |
 | `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
-| `services/vector_store.py` | 封裝 ChromaDB 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
+| `services/vector_store.py` | 封裝 PostgreSQL + pgvector 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
 | `services/llm_service.py` | `LLMProvider` 介面與 `OpenAICompatibleLLMProvider`；`build_rag_prompt` 和 `format_citations` 純函式 |
 | `services/etl_service.py` | CSV/Excel/JSON 匯入、正規化、寫入 PostgreSQL |
 | `services/ai_service.py` | 調度 LLM 工具呼叫，執行分類、評分、洞察 |
@@ -82,8 +82,8 @@ POST /projects/{id}/upload/documents
   │    └─ 每個 chunk（明確指定 uuid）→ document_chunks INSERT
   │         metadata: { filename, page_number, chunk_size }
   │
-  ├─ VectorStoreService.add_chunks()  嵌入所有 chunk → ChromaDB upsert
-  │    ├─ id = document_chunks.id（PG 與 ChromaDB 使用相同 UUID）
+  ├─ VectorStoreService.add_chunks()  嵌入所有 chunk → PostgreSQL + pgvector upsert
+  │    ├─ id = document_chunks.id（PG 與 PostgreSQL + pgvector 使用相同 UUID）
   │    ├─ metadata: { project_id, document_id, chunk_id, filename, chunk_index }
   │    └─ 在 db.commit() 之前執行 — embedding 失敗即中止上傳（不留下半套資料）
   │
@@ -91,7 +91,7 @@ POST /projects/{id}/upload/documents
        { document_id, filename, page_count, chunk_count, source_path }
 
 GET /projects/{id}/search?query=...&top_k=5
-  └─ 嵌入 query → ChromaDB query（where project_id == {id}）→ top-k chunks
+  └─ 嵌入 query → PostgreSQL + pgvector query（where project_id == {id}）→ top-k chunks
        每筆 hit：{ chunk_id, content, metadata, distance, score }
        chunk_id 可 1:1 對回 PostgreSQL 的 document_chunks 列
 ```
@@ -104,7 +104,7 @@ POST /projects/{id}/chat  { question, top_k }
   ├─ Project 404 防護
   │
   ├─ VectorStoreService.search(project_id, question, top_k)
-  │    └─ 嵌入問題 → ChromaDB query（where project_id == {id}）→ top-k hits
+  │    └─ 嵌入問題 → PostgreSQL + pgvector query（where project_id == {id}）→ top-k hits
   │         每筆 hit：{ chunk_id, content, metadata, distance, score }
   │
   ├─ build_rag_prompt(hits)
@@ -205,8 +205,7 @@ POST /projects/{id}/analyze/incidents
 |---|---|
 | FastAPI 後端 | 8000 |
 | React 前端（Vite + TypeScript + Tailwind） | 8501 |
-| PostgreSQL | 5432 |
-| ChromaDB | 8001 |
+| PostgreSQL + pgvector | 5432 |
 
 ## LLMProvider 設計
 

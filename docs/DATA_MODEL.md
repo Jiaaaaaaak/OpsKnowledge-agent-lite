@@ -63,7 +63,7 @@ Metadata for uploaded documents such as PDFs.
 ---
 
 ### `document_chunks`
-Text chunks produced by splitting a PDF (mapped to ChromaDB).
+Text chunks produced by splitting a PDF (mapped to PostgreSQL + pgvector).
 
 | Column | Type | Notes |
 |---|---|---|

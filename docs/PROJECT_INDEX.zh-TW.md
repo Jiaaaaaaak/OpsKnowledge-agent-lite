@@ -59,7 +59,7 @@
 | `backend/app/api/uploads.py` | route | 上傳工單（CSV/Excel/JSON） | `main.py`（經 HTTP） | `services/etl_service` | ★★ |
 | `backend/app/api/dashboard.py` | route | 儀表板聚合 + agent-runs/tool-calls 查詢（純 SQL，不呼叫 LLM） | `main.py`（經 HTTP） | `models/agent`、`models/analysis`、`models/record`、`schemas/agent` | ★★ |
 | `backend/app/api/projects.py` | route | 專案 CRUD（建立/列出/取得） | `main.py`（經 HTTP） | `models/project`、`schemas/project` | ★★ |
-| `backend/app/api/health.py` | route | `GET /health`，檢查 DB 與 Chroma 連線 | `main.py`、docker healthcheck | `db/session.check_db_connection`、`chromadb` | ★ |
+| `backend/app/api/health.py` | route | `GET /health`，檢查 DB 與 pgvector 連線 | `main.py`、docker healthcheck | `db/session.check_db_connection`、`pgvector` | ★ |
 
 ---
 
@@ -68,9 +68,9 @@
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
 | `backend/app/services/llm_service.py` | service | LLM provider 抽象（mock/openai/ollama）、`build_rag_prompt`、`format_citations` | `api/chat.py`、`api/analyze.py`、`tools/incident_analysis.py`、`utils/verify_providers.py` | `openai` SDK / `httpx`（ollama）、`core/config` | ★★★ |
-| `backend/app/services/vector_store.py` | service | 封裝 ChromaDB：寫入 chunk 向量、相似度搜尋（模組級單例） | `api/chat.py`、`api/documents.py` | `services/embedding_service`、`chromadb`、`core/config` | ★★★ |
+| `backend/app/services/vector_store.py` | service | 封裝 PostgreSQL + pgvector：寫入 chunk 向量、相似度搜尋（模組級單例） | `api/chat.py`、`api/documents.py` | `services/embedding_service`、`pgvector`、`core/config` | ★★★ |
 | `backend/app/services/embedding_service.py` | service | Embedding provider 抽象（mock=MD5→384維 / openai） | `services/vector_store`、`utils/verify_providers` | `openai` SDK、`core/config` | ★★ |
-| `backend/app/services/document_service.py` | service | PDF 解析、滑動視窗切 chunk、寫 PostgreSQL + 送 ChromaDB | `api/documents.py` | `pypdf`、`services/vector_store`（ChunkPayload/add_chunks）、`models/document` | ★★ |
+| `backend/app/services/document_service.py` | service | PDF 解析、滑動視窗切 chunk、寫 PostgreSQL + 送 PostgreSQL + pgvector | `api/documents.py` | `pypdf`、`services/vector_store`（ChunkPayload/add_chunks）、`models/document` | ★★ |
 | `backend/app/services/etl_service.py` | service | 工單 ETL：欄位同義詞對應、日期解析、Pydantic 驗證、寫 raw+cleaned | `api/uploads.py` | `models/record`、`csv`/`json`/`openpyxl` | ★★ |
 | `backend/app/tools/incident_analysis.py` | agent tools | 4 個工具：classify/severity/insights/action_items，各自驗證輸出並寫 tool_calls | `api/analyze.py` | `services/llm_service`（LLMProvider）、`models/agent`（ToolCall）、`models/record` | ★★★ |
 
@@ -106,16 +106,16 @@
 
 ---
 
-## 8. ChromaDB 相關
+## 8. PostgreSQL + pgvector 相關
 
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
-| `backend/app/services/vector_store.py` | service | 唯一直接操作 ChromaDB 的檔（HttpClient、upsert、query） | `chat.py`、`documents.py` | `chromadb`、`embedding_service`、`config` | ★★★ |
-| `backend/app/services/embedding_service.py` | service | 產生送進 Chroma 的向量（文字→embedding） | `vector_store` | `openai`/本地 hash、`config` | ★★ |
-| `backend/app/core/config.py`（Chroma 段） | 設定 | `chroma_host/port/collection_name` | `vector_store`、`health.py` | `pydantic-settings`、`.env` | ★★ |
-| `docker-compose.yml`（chromadb service） | 部署 | 啟動 Chroma 容器（host 8001→container 8000）、`chroma_data` volume | `docker compose` | — | ★ |
+| `backend/app/services/vector_store.py` | service | 唯一直接操作 PostgreSQL + pgvector 的檔（embedding 更新、cosine distance query） | `chat.py`、`documents.py` | `db/session`、`embedding_service` | ★★★ |
+| `backend/app/services/embedding_service.py` | service | 產生送進 pgvector 的向量（文字→embedding） | `vector_store` | `openai`/本地 hash、`config` | ★★ |
+| `backend/app/db/session.py` | DB | 初始化與檢查 `vector` extension | `health.py`、`scripts/create_tables.py` | SQLAlchemy、PostgreSQL | ★★ |
+| `docker-compose.yml`（postgres service） | 部署 | 啟動 `pgvector/pgvector:pg16` PostgreSQL 容器與 `postgres_data` volume | `docker compose` | — | ★ |
 
-> ChromaDB 沒有獨立的 Python 模組；所有互動都集中在 `vector_store.py`，這是看懂向量檢索的單一入口。
+> PostgreSQL + pgvector 沒有獨立的 Python 模組；所有互動都集中在 `vector_store.py`，這是看懂向量檢索的單一入口。
 
 ---
 
@@ -148,7 +148,7 @@
 
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
-| `backend/app/core/config.py` | 設定載入 | 用 pydantic-settings 讀 `.env`，集中所有設定（DB/Chroma/provider/模型） | 幾乎所有後端模組 | `pydantic-settings`、`.env`（絕對路徑錨定） | ★★★ |
+| `backend/app/core/config.py` | 設定載入 | 用 pydantic-settings 讀 `.env`，集中所有設定（DB/pgvector/provider/模型） | 幾乎所有後端模組 | `pydantic-settings`、`.env`（絕對路徑錨定） | ★★★ |
 | `.env` | 環境變數 | 實際生效的設定值（本機） | `config.py`、docker-compose `env_file` | — | ★★★ |
 | `.env.example` | 環境變數範本 | 安全範本 + 各變數說明（mock/openai/ollama 切換） | 人（`cp .env.example .env`） | — | ★★ |
 | `docker-compose.yml` | 編排 | 定義 4 服務、port、volume、healthcheck、啟動指令 | `docker compose` / `Makefile` | 各 Dockerfile、`.env` | ★★ |

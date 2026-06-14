@@ -63,7 +63,7 @@ erDiagram
 ---
 
 ### `document_chunks`
-PDF 切分後的文字區塊（與 ChromaDB 對應）。
+PDF 切分後的文字區塊（與 PostgreSQL + pgvector 對應）。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
