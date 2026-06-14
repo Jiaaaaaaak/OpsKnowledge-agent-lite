@@ -85,7 +85,7 @@ def upload_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="上傳的檔案為空")
 
     try:
-        svc = DocumentIngestionService(vector_store=get_vector_store())
+        svc = DocumentIngestionService(vector_store=get_vector_store(db_session=db))
         return svc.ingest(db, project_id, filename, content)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -126,7 +126,7 @@ def search_documents(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     try:
-        store = get_vector_store()
+        store = get_vector_store(db_session=db)
         hits = store.search(str(project_id), query, top_k)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))

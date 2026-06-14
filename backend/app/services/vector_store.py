@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from contextlib import contextmanager
+from collections.abc import Iterator
 
-from app.core.config import settings
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.db.session import SessionLocal
 from app.services.embedding_service import EmbeddingProvider, get_embedding_provider
 
 
 @dataclass
 class ChunkPayload:
-    """送入 ChromaDB 的單一 chunk。chunk_id 等同 PostgreSQL document_chunks.id."""
+    """Single chunk to embed. chunk_id equals document_chunks.id."""
 
     chunk_id: str
     document_id: str
@@ -20,83 +25,142 @@ class ChunkPayload:
 
 
 class VectorStoreService:
-    """封裝 ChromaDB collection，負責寫入 chunk 向量與相似度搜尋.
+    """PostgreSQL + pgvector-backed vector store.
 
-    embedding_provider 以建構子注入，之後要換成本地 embedding 不需動到本類別。
+    embedding_provider is injected so embedding providers can change without
+    touching storage logic.
     """
 
     def __init__(
         self,
         embedding_provider: EmbeddingProvider,
         *,
-        host: str | None = None,
-        port: int | None = None,
-        collection_name: str | None = None,
+        db_session: Session | None = None,
     ) -> None:
         self._embedder = embedding_provider
+        self._db_session = db_session
 
-        import chromadb
+    @staticmethod
+    def _vector_literal(vector: list[float]) -> str:
+        return "[" + ",".join(str(float(v)) for v in vector) + "]"
 
-        self._client = chromadb.HttpClient(
-            host=host or settings.chroma_host,
-            port=port or settings.chroma_port,
-        )
-        self._collection = self._client.get_or_create_collection(
-            name=collection_name or settings.chroma_collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+    @staticmethod
+    def _row_value(row, key: str):
+        mapping = getattr(row, "_mapping", None)
+        if mapping is not None and key in mapping:
+            return mapping[key]
+        return getattr(row, key)
+
+    @contextmanager
+    def _session_scope(self) -> Iterator[tuple[Session, bool]]:
+        if self._db_session is not None:
+            yield self._db_session, False
+            return
+
+        db = SessionLocal()
+        try:
+            yield db, True
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     def add_chunks(self, chunks: list[ChunkPayload]) -> int:
-        """嵌入並 upsert 一批 chunk，回傳寫入筆數."""
+        """Embed chunks and update document_chunks.embedding."""
         if not chunks:
             return 0
         embeddings = self._embedder.embed([c.content for c in chunks])
-        self._collection.upsert(
-            ids=[c.chunk_id for c in chunks],
-            embeddings=embeddings,
-            documents=[c.content for c in chunks],
-            metadatas=[
-                {
-                    "project_id": c.project_id,
-                    "document_id": c.document_id,
-                    "chunk_id": c.chunk_id,
-                    "filename": c.filename,
-                    "chunk_index": c.chunk_index,
-                }
-                for c in chunks
-            ],
+        update_sql = text(
+            """
+            UPDATE document_chunks
+            SET embedding = CAST(:embedding AS vector)
+            WHERE id = CAST(:chunk_id AS uuid)
+            """
         )
+        with self._session_scope() as (db, _owns_session):
+            for chunk, embedding in zip(chunks, embeddings):
+                db.execute(
+                    update_sql,
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "embedding": self._vector_literal(embedding),
+                    },
+                )
         return len(chunks)
 
     def delete_chunks(self, chunk_ids: list[str]) -> None:
-        """刪除指定 chunk ids；供跨儲存寫入失敗時做補償清理."""
+        """Clear embeddings for chunk ids; used as ingest failure compensation."""
         if not chunk_ids:
             return
-        self._collection.delete(ids=chunk_ids)
+        with self._session_scope() as (db, _owns_session):
+            db.execute(
+                text(
+                    """
+                    UPDATE document_chunks
+                    SET embedding = NULL
+                    WHERE id = ANY(CAST(:chunk_ids AS uuid[]))
+                    """
+                ),
+                {"chunk_ids": chunk_ids},
+            )
 
     def search(self, project_id: str, query: str, top_k: int = 5) -> list[dict]:
-        """在指定專案範圍內做相似度搜尋，回傳 top_k 個 chunk（含 metadata 與分數）."""
+        """Search project-scoped chunks by cosine distance."""
         query_embedding = self._embedder.embed([query])[0]
-        res = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where={"project_id": str(project_id)},
+        search_sql = text(
+            """
+            SELECT
+                dc.id::text AS chunk_id,
+                dc.content AS content,
+                dc.metadata AS metadata,
+                dc.document_id::text AS document_id,
+                d.filename AS filename,
+                dc.chunk_index AS chunk_index,
+                dc.embedding <=> CAST(:query_embedding AS vector) AS distance
+            FROM document_chunks dc
+            JOIN documents d ON d.id = dc.document_id
+            WHERE d.project_id = CAST(:project_id AS uuid)
+              AND dc.embedding IS NOT NULL
+            ORDER BY dc.embedding <=> CAST(:query_embedding AS vector)
+            LIMIT :top_k
+            """
         )
-        ids = (res.get("ids") or [[]])[0]
-        documents = (res.get("documents") or [[]])[0]
-        metadatas = (res.get("metadatas") or [[]])[0]
-        distances = (res.get("distances") or [[]])[0]
+        with self._session_scope() as (db, _owns_session):
+            rows = db.execute(
+                search_sql,
+                {
+                    "project_id": str(project_id),
+                    "query_embedding": self._vector_literal(query_embedding),
+                    "top_k": top_k,
+                },
+            ).fetchall()
 
         hits: list[dict] = []
-        for i, chunk_id in enumerate(ids):
-            distance = distances[i] if i < len(distances) else None
+        for row in rows:
+            distance = self._row_value(row, "distance")
+            chunk_id = self._row_value(row, "chunk_id")
+            content = self._row_value(row, "content")
+            document_id = self._row_value(row, "document_id")
+            filename = self._row_value(row, "filename")
+            chunk_index = self._row_value(row, "chunk_index")
+            metadata = dict(self._row_value(row, "metadata") or {})
+            metadata.update(
+                {
+                    "project_id": str(project_id),
+                    "document_id": document_id,
+                    "chunk_id": chunk_id,
+                    "filename": filename,
+                    "chunk_index": chunk_index,
+                }
+            )
             hits.append(
                 {
                     "chunk_id": chunk_id,
-                    "content": documents[i] if i < len(documents) else "",
-                    "metadata": metadatas[i] if i < len(metadatas) else {},
+                    "content": content,
+                    "metadata": metadata,
                     "distance": distance,
-                    # cosine 距離 → 相似度分數（1 - distance），方便前端排序顯示
                     "score": (1.0 - distance) if distance is not None else None,
                 }
             )
@@ -104,10 +168,17 @@ class VectorStoreService:
 
 
 @lru_cache(maxsize=1)
-def get_vector_store() -> VectorStoreService:
+def _get_cached_vector_store() -> VectorStoreService:
+    return VectorStoreService(get_embedding_provider())
+
+
+def get_vector_store(db_session: Session | None = None) -> VectorStoreService:
     """
-    模組級單例。依 EMBEDDING_PROVIDER 環境變數選擇 provider：
+    Build a vector store. Without db_session this returns a cached service.
+
     - "mock"   → MockEmbeddingProvider（無須 API key）
     - "openai" → OpenAIEmbeddingProvider（需 OPENAI_API_KEY）
     """
-    return VectorStoreService(get_embedding_provider())
+    if db_session is None:
+        return _get_cached_vector_store()
+    return VectorStoreService(get_embedding_provider(), db_session=db_session)

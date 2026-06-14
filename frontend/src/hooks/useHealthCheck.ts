@@ -10,8 +10,6 @@ export function useHealthCheck() {
     const fetchHealth = async () => {
       try {
         setLoading(true);
-        // Assuming the health endpoint is /health or similar. 
-        // Based on the prompt: { "status": "ok", "version": "0.1.0", "db": "connected", "chroma": "connected" }
         const response = await api.get('/health');
         setStatus(response);
         setError(null);

@@ -450,7 +450,7 @@ class TestIngestWithVectorStore:
         vector_store.add_chunks.assert_called_once()
         payloads = vector_store.add_chunks.call_args.args[0]
 
-        # ChromaDB 的 chunk_id 必須等同 PostgreSQL document_chunks.id（之後才能對回）
+        # vector store 的 chunk_id 必須等同 PostgreSQL document_chunks.id（之後才能對回）
         assert {str(c.id) for c in added_chunks} == {p.chunk_id for p in payloads}
         # metadata 必帶 project_id，且 embedding 須在 commit 之前完成
         assert all(p.project_id == str(project_id) for p in payloads)

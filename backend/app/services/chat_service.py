@@ -21,7 +21,7 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
 
     retrieval_start = time.monotonic()
     try:
-        store = get_vector_store()
+        store = get_vector_store(db_session=db)
         hits = store.search(str(project_id), body.question, body.top_k)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))

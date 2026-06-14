@@ -2,6 +2,8 @@
 -- Migration: 001
 -- PostgreSQL 13+ (uses gen_random_uuid() built-in)
 
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- ─────────────────────────────────────────────────────────
 -- projects
 -- ─────────────────────────────────────────────────────────
@@ -37,11 +39,14 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     document_id UUID        NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER     NOT NULL,
     content     TEXT        NOT NULL,
+    embedding   vector(384),
     metadata    JSONB       NOT NULL DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw
+    ON document_chunks USING hnsw (embedding vector_cosine_ops);
 
 -- ─────────────────────────────────────────────────────────
 -- raw_records

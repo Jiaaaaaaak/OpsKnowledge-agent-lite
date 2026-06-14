@@ -6,7 +6,7 @@ MockEmbeddingProvider / MockLLMProvider 單元測試，以及 get_*_provider() f
 - 確保向量維度、確定性、L2 正規化的性質成立
 - 確保 LLM mock 在有 context / 無 context 兩種情境下回傳合理答案
 - 確保 factory function 能依 settings 選擇正確的 provider
-- 確保 mock provider 可以串接 VectorStoreService (mocked ChromaDB) 完成完整端到端流程
+- 確保 mock provider 可以串接 VectorStoreService (mocked PostgreSQL session) 完成完整端到端流程
 """
 import math
 from unittest.mock import patch
@@ -284,7 +284,7 @@ class TestGetLLMProviderFactory:
 
 class TestMockProviderEndToEnd:
     """
-    使用 mocked ChromaDB 驗證完整的 mock pipeline。
+    使用 mocked PostgreSQL session 驗證完整的 mock pipeline。
     不需要任何外部服務或 API key。
     """
 
@@ -304,39 +304,44 @@ class TestMockProviderEndToEnd:
         }
 
     def test_mock_embedding_can_embed_and_produce_valid_hits(self):
-        """MockEmbeddingProvider + VectorStoreService (mocked ChromaDB) 能完成 add_chunks + search。"""
-        from unittest.mock import MagicMock, patch
+        """MockEmbeddingProvider + VectorStoreService (mocked DB) 能完成 add_chunks + search。"""
+        from unittest.mock import MagicMock
         from app.services.vector_store import VectorStoreService, ChunkPayload
 
         hit = self._make_hit("c1", "Run docker inspect to check volumes.", "ops.pdf", 0)
 
-        with patch("chromadb.HttpClient") as mock_http:
-            collection = mock_http.return_value.get_or_create_collection.return_value
-            collection.query.return_value = {
-                "ids": [["c1"]],
-                "documents": [["Run docker inspect to check volumes."]],
-                "metadatas": [[hit["metadata"]]],
-                "distances": [[0.15]],
-            }
+        row = MagicMock()
+        row.chunk_id = "c1"
+        row.content = "Run docker inspect to check volumes."
+        row.metadata = hit["metadata"]
+        row.document_id = "doc-1"
+        row.filename = "ops.pdf"
+        row.chunk_index = 0
+        row.distance = 0.15
 
-            embedder = MockEmbeddingProvider(dim=16)
-            store = VectorStoreService(embedder)
+        search_result = MagicMock()
+        search_result.fetchall.return_value = [row]
+        db = MagicMock()
+        db.execute.return_value = search_result
 
-            # add_chunks 使用 mock embedding
-            count = store.add_chunks([
-                ChunkPayload(
-                    chunk_id="c1",
-                    document_id="doc-1",
-                    project_id="proj-1",
-                    filename="ops.pdf",
-                    chunk_index=0,
-                    content="Run docker inspect to check volumes.",
-                )
-            ])
-            assert count == 1
+        embedder = MockEmbeddingProvider(dim=16)
+        store = VectorStoreService(embedder, db_session=db)
 
-            # search 回傳 hit
-            hits = store.search("proj-1", "docker volume issue", top_k=1)
+        # add_chunks 使用 mock embedding
+        count = store.add_chunks([
+            ChunkPayload(
+                chunk_id="c1",
+                document_id="doc-1",
+                project_id="proj-1",
+                filename="ops.pdf",
+                chunk_index=0,
+                content="Run docker inspect to check volumes.",
+            )
+        ])
+        assert count == 1
+
+        # search 回傳 hit
+        hits = store.search("proj-1", "docker volume issue", top_k=1)
 
         assert len(hits) == 1
         assert hits[0]["chunk_id"] == "c1"

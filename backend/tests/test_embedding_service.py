@@ -36,6 +36,18 @@ class TestEmbed:
         mock_openai_cls.return_value.embeddings.create.assert_called_once()
 
     @patch("openai.OpenAI")
+    def test_openai_embedding_request_uses_configured_dimension(self, mock_openai_cls):
+        item = MagicMock()
+        item.embedding = [0.1, 0.2]
+        mock_openai_cls.return_value.embeddings.create.return_value = MagicMock(data=[item])
+
+        provider = OpenAIEmbeddingProvider(api_key="sk-real-key")
+        provider.embed(["alpha"])
+
+        kwargs = mock_openai_cls.return_value.embeddings.create.call_args.kwargs
+        assert kwargs["dimensions"] == 384
+
+    @patch("openai.OpenAI")
     def test_empty_input_skips_api_call(self, mock_openai_cls):
         provider = OpenAIEmbeddingProvider(api_key="sk-real-key")
         assert provider.embed([]) == []

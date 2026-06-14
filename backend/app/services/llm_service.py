@@ -133,7 +133,8 @@ class OllamaLLMProvider(LLMProvider):
         except httpx.RequestError as exc:
             # 連不上服務本身
             raise RuntimeError(
-                f"無法連線到 Ollama（{url}）：請確認 Ollama 服務已啟動（`ollama serve`）"
+                f"無法連線到 Ollama（{url}）：請確認 Ollama 服務已啟動，"
+                f"Docker Compose 可執行 `docker compose ps ollama` 檢查狀態，"
                 f"且 OLLAMA_BASE_URL 設定正確。原始錯誤：{exc}"
             ) from exc
 

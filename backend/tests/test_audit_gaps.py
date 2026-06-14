@@ -208,7 +208,7 @@ class TestDashboardHasNoLLMDependency:
                     assert "llm_service" not in alias.name
 
     def test_no_vector_store_import(self):
-        # 同理，dashboard 也不該打 ChromaDB
+        # 同理，dashboard 也不該打 vector store
         tree = ast.parse(self._dashboard_source())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):

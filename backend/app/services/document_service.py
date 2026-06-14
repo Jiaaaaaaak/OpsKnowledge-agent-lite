@@ -325,7 +325,7 @@ class DocumentIngestionService:
             ))
             chunk_index += 1
 
-        # 先 embed 並寫入 ChromaDB，成功後才 commit；embedding 失敗則不留下半套資料。
+        # 先 embed 並寫入 PostgreSQL pgvector 欄位，成功後才 commit；embedding 失敗則不留下半套資料。
         vector_chunk_ids: list[str] = []
         if self._vector_store is not None:
             self._vector_store.add_chunks(payloads)
@@ -339,7 +339,7 @@ class DocumentIngestionService:
                 try:
                     self._vector_store.delete_chunks(vector_chunk_ids)
                 except Exception:
-                    logger.exception("failed to delete ChromaDB chunks after PostgreSQL commit failure")
+                    logger.exception("failed to clear chunk embeddings after PostgreSQL commit failure")
             raise
 
         return DocumentIngestionResult(

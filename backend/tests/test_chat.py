@@ -135,7 +135,7 @@ class TestFormatCitations:
         assert format_citations([]) == []
 
     def test_chunk_index_cast_to_int(self):
-        # ChromaDB metadata 有時回傳 float；必須確保最終型別為 int
+        # vector metadata 有時回傳 float；必須確保最終型別為 int
         hit = self._make_hit()
         hit["metadata"]["chunk_index"] = 7.0
         c = format_citations([hit])[0]

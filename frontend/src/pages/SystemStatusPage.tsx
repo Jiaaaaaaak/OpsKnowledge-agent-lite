@@ -72,14 +72,14 @@ export default function SystemStatusPage() {
                   <Activity className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-slate-900">ChromaDB</h4>
-                  <p className="text-xs text-slate-500">向量資料庫 (文件 Embedding)</p>
+                  <h4 className="text-sm font-medium text-slate-900">pgvector</h4>
+                  <p className="text-xs text-slate-500">PostgreSQL 向量檢索</p>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
-                {getStatusIcon(status?.chroma)}
-                <Badge variant={status?.chroma === 'connected' ? 'success' : 'error'}>
-                  {status?.chroma === 'connected' ? 'Connected' : 'Disconnected'}
+                {getStatusIcon(status?.vector)}
+                <Badge variant={status?.vector === 'connected' ? 'success' : 'error'}>
+                  {status?.vector === 'connected' ? 'Connected' : 'Disconnected'}
                 </Badge>
               </div>
             </div>

@@ -31,17 +31,12 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # ChromaDB
-    chroma_host: str = "localhost"
-    chroma_port: int = 8001
-    chroma_collection_name: str = "opsknowledge_docs"
-
     # Provider selection
     # "openai" — calls OpenAI-compatible API (requires a real OPENAI_API_KEY)
     # "ollama" — calls a local Ollama HTTP server (private / on-premise deployment)
     # "mock"   — deterministic local provider; no API key needed; safe for CI / local dev
-    # 預設 "mock"：與 .env.example 與 README "defaults to mock mode" 的承諾一致；
-    # 跑測試或第一次 spin up（沒有 .env）時不會因為缺 OPENAI_API_KEY 而崩。
+    # 程式內建預設仍安全離線；專案 .env.example 則以 Ollama LLM + mock embedding
+    # 作為面試 / 地端展示預設。
     embedding_provider: str = "mock"
     llm_provider: str = "mock"
     mock_embedding_dim: int = 384  # fixed vector dimension used by MockEmbeddingProvider
@@ -51,6 +46,7 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 384
 
     # Ollama (local LLM provider for private / on-premise deployment)
     ollama_base_url: str = "http://localhost:11434"
