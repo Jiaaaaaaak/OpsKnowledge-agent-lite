@@ -1,17 +1,17 @@
-# OpsKnowledge Agent Lite — 4 服務全套 stack
+# OpsKnowledge Agent Lite — full stack
 #
 # Ports（host → container）:
 #   frontend : 8501 → 8501  (React UI — start here)
 #   backend  : 8000 → 8000  (FastAPI — http://localhost:8000/docs)
-#   postgres : 5432 → 5432  (Postgres 16)
-#   chromadb : 8001 → 8000  (Chroma 監聽 container 內 8000；host 對外用 8001 避開 backend)
+#   postgres : 5432 → 5432  (Postgres 16 + pgvector)
+#   ollama   : 11434 → 11434 (local LLM server)
 #
-# Persistence: postgres_data / chroma_data named volumes 跨 compose 重啟保留資料。
-# Service hostnames inside the compose network: postgres / chromadb / backend / frontend.
+# Persistence: postgres_data named volume survives compose restarts.
+# Service hostnames inside the compose network: postgres / ollama / backend / frontend.
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: opsknowledge_postgres
     restart: unless-stopped
     environment:
@@ -23,29 +23,24 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opsuser} -d ${POSTGRES_DB:-opsknowledge}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opsuser} -d ${POSTGRES_DB:-opsknowledge}" ]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  chromadb:
-    image: chromadb/chroma:0.5.23
-    container_name: opsknowledge_chroma
+  ollama:
+    image: ollama/ollama
+    container_name: opsknowledge_ollama
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "11434:11434"
     volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      ANONYMIZED_TELEMETRY: "false"
-    # chromadb image 有 python3；用 stdlib 打 /api/v1/heartbeat 即可，不需 curl / wget
+      - ollama_data:/root/.ollama
     healthcheck:
-      test:
-        - "CMD-SHELL"
-        - "python3 -c \"import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat',timeout=2)\" || exit 1"
+      test: [ "CMD", "ollama", "list" ]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 12
       start_period: 10s
 
   backend:
@@ -59,17 +54,14 @@ services:
     # compose network 內以 service 名互連，覆蓋 .env 預設的 localhost
     environment:
       POSTGRES_HOST: postgres
-      CHROMA_HOST: chromadb
-      CHROMA_PORT: 8000
-      # Inside Docker, localhost points at the backend container, not the host.
-      # Use DOCKER_OLLAMA_BASE_URL to override for containerized Ollama.
-      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Inside Docker, use the compose service hostname for the bundled Ollama.
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://ollama:11434}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
-      chromadb:
+      ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -100,4 +92,4 @@ services:
 
 volumes:
   postgres_data:
-  chroma_data:
+  ollama_data:

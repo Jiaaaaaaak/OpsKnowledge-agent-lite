@@ -20,7 +20,7 @@ htmlcov/
 
 # Docker volumes (if mapped locally)
 postgres_data/
-chroma_data/
+ollama_data/
 
 # Runtime uploads
 backend/data/uploads/
