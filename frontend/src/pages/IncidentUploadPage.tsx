@@ -55,11 +55,6 @@ export default function IncidentUploadPage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-800">匯入事件紀錄</h2>
-        <p className="text-slate-600 mt-1">上傳歷史事件或工單資料 (CSV / Excel / JSON)，系統將自動清理與正規化，以供後續 AI 分析使用。</p>
-      </div>
-
       <Card>
         <div className="flex flex-col space-y-4">
           {error && <div className="p-3 bg-red-50 text-red-600 rounded-md text-sm">{error}</div>}

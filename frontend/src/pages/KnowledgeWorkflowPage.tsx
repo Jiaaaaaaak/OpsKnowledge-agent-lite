@@ -183,11 +183,6 @@ export default function KnowledgeWorkflowPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-800">知識庫問答流程</h2>
-        <p className="mt-1 text-slate-600">先上傳技術文件建立向量索引，再以 RAG 對話查詢並檢視引用來源。</p>
-      </div>
-
       <WorkflowStepper steps={steps} onStepClick={handleStepClick} />
 
       <div className="grid gap-6 md:grid-cols-[1fr_260px]">

@@ -55,11 +55,6 @@ export default function DocumentUploadPage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-800">上傳技術文件</h2>
-        <p className="text-slate-600 mt-1">上傳 PDF 格式的技術文件，系統將自動進行切塊與向量化，作為「智能問答」的知識庫來源。</p>
-      </div>
-
       <Card>
         <div className="flex flex-col space-y-4">
           {error && <div className="p-3 bg-red-50 text-red-600 rounded-md text-sm">{error}</div>}

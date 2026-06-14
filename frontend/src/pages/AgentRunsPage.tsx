@@ -76,11 +76,7 @@ export default function AgentRunsPage() {
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col gap-4 overflow-hidden">
-      <div className="flex items-center justify-between shrink-0">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Agent 執行紀錄</h2>
-          <p className="text-sm text-slate-500 mt-1">檢視每次 Agent 任務與工具呼叫軌跡。</p>
-        </div>
+      <div className="flex items-center justify-end shrink-0">
         <Button
           type="button"
           variant="secondary"

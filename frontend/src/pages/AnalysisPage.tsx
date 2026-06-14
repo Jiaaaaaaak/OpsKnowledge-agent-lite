@@ -47,11 +47,6 @@ export default function AnalysisPage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-800">執行 AI 分析</h2>
-        <p className="text-slate-600 mt-1">啟動 4-tool agent 依序進行分類、嚴重程度判定、產生洞察與建立行動項目。</p>
-      </div>
-
       <Card>
         <div className="py-6 flex flex-col items-center text-center">
           <div className="p-4 bg-indigo-50 rounded-full mb-4">

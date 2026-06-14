@@ -120,11 +120,6 @@ export default function EventInsightsWorkflowPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-800">事件洞察流程</h2>
-        <p className="mt-1 text-slate-600">依序匯入事件、執行 AI 分析，並檢視該次分析的洞察與行動項目。</p>
-      </div>
-
       <WorkflowStepper steps={steps} onStepClick={handleStepClick} />
 
       <div className="grid gap-6 md:grid-cols-[1fr_260px]">

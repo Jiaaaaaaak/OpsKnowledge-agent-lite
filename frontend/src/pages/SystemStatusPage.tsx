@@ -15,7 +15,7 @@ export default function SystemStatusPage() {
 
   return (
     <div className="space-y-6">
-      <Card title="系統健康狀態" description="檢視後端基礎設施連線情形">
+      <Card>
         
         {loading ? (
           <div className="py-8 text-center text-slate-500">載入中...</div>

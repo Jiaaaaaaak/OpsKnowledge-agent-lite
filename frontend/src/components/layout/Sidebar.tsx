@@ -27,8 +27,10 @@ export default function Sidebar() {
   return (
     <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0">
       <div className="h-16 flex items-center px-6 bg-slate-950 border-b border-slate-800 shrink-0">
-        <BookOpen className="w-6 h-6 text-indigo-400 mr-3" />
-        <span className="text-white font-semibold text-lg tracking-wide">OpsKnowledge</span>
+        <BookOpen className="w-6 h-6 text-indigo-400 mr-3 shrink-0" />
+        <span className="text-white font-semibold text-lg tracking-wide truncate">
+          OpsKnowledge
+        </span>
       </div>
       
       <div className="flex-1 overflow-y-auto py-4">
@@ -86,7 +88,7 @@ export default function Sidebar() {
       
       <div className="p-4 border-t border-slate-800 shrink-0">
         <div className="text-xs text-slate-500">
-          OpsKnowledge Agent Lite
+          Agent Lite
           <br />
           Version 0.1.0
         </div>

@@ -80,11 +80,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-800">分析儀表板</h2>
-        <p className="text-slate-600 mt-1">檢視事件洞察、高風險項目與建議的行動計畫。</p>
-      </div>
-      
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-6">
         <Card className="flex items-center p-6">

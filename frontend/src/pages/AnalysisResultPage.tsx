@@ -68,10 +68,7 @@ export default function AnalysisResultPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">分析結果</h2>
-          <p className="mt-1 font-mono text-xs text-slate-400">Run ID: {run.id}</p>
-        </div>
+        <div />
         <Badge variant={run.status === 'success' ? 'success' : run.status === 'failed' ? 'error' : 'warning'}>
           Status: {run.status}
         </Badge>
