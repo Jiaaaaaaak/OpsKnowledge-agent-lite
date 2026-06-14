@@ -138,6 +138,7 @@ def run_incident_analysis(project_id: uuid.UUID, db: Session) -> AnalyzeResponse
             db.add(
                 Insight(
                     project_id=project_id,
+                    agent_run_id=agent_run_id,
                     title=ins["title"][:500],
                     summary=ins["summary"],
                     evidence=ins.get("evidence", []),
@@ -156,6 +157,7 @@ def run_incident_analysis(project_id: uuid.UUID, db: Session) -> AnalyzeResponse
             db.add(
                 ActionItem(
                     project_id=project_id,
+                    agent_run_id=agent_run_id,
                     title=ai["title"][:500],
                     description=ai["description"],
                     priority=ai["priority"],

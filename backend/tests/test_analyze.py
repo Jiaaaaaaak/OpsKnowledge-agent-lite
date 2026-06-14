@@ -408,6 +408,11 @@ def test_analyze_endpoint_happy_path(client):
     for item in (o for o in added if isinstance(o, ActionItem)):
         assert item.status == ACTION_ITEM_STATUS_OPEN
 
+    for insight in (o for o in added if isinstance(o, Insight)):
+        assert insight.agent_run_id == agent_run.id
+    for item in (o for o in added if isinstance(o, ActionItem)):
+        assert item.agent_run_id == agent_run.id
+
     db.commit.assert_called_once()
 
 

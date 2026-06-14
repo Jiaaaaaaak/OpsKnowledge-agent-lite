@@ -85,6 +85,7 @@ def _chain_returning(value):
     m.filter.return_value = m
     m.order_by.return_value = m
     m.group_by.return_value = m
+    m.join.return_value = m
     m.limit.return_value = m
     m.offset.return_value = m
     m.all.return_value = value if isinstance(value, list) else []
@@ -168,6 +169,7 @@ def _insight(title="Top: network_issue"):
     i.id = uuid.uuid4()
     i.title = title
     i.summary = "summary"
+    i.evidence = [{"ticket_id": "INC-001"}]
     i.recommendation = "recommendation"
     i.created_at = _NOW
     return i
@@ -375,3 +377,121 @@ def test_list_tool_calls_returns_404_when_run_missing(client):
 def test_list_tool_calls_invalid_uuid_returns_422(client):
     response = client.get("/agent-runs/not-a-uuid/tool-calls")
     assert response.status_code == 422
+
+
+# ──────────────────────────────────────────────────────────────
+# GET /agent-runs/{id}/analysis-result
+# ──────────────────────────────────────────────────────────────
+
+
+def test_analysis_run_result_happy_path(client):
+    run = _agent_run()
+    run.output_json = {
+        "records_analyzed": 8,
+        "needs_review": 2,
+        "insights_created": 1,
+        "action_items_created": 1,
+    }
+    insights = [_insight("Top: storage_issue")]
+    action_items = [_action_item("high")]
+
+    db = MagicMock()
+
+    def _side_effect(*args, **_kwargs):
+        first = args[0]
+        if first is AgentRun:
+            return _chain_returning(run)
+        if first is Insight:
+            return _chain_returning(insights)
+        if first is ActionItem:
+            return _chain_returning(action_items)
+        return _chain_returning([])
+
+    db.query = MagicMock(side_effect=_side_effect)
+    app.dependency_overrides[get_db] = _override_db(db)
+
+    response = client.get(f"/agent-runs/{run.id}/analysis-result")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["run"]["id"] == str(run.id)
+    assert body["run"]["status"] == "success"
+    assert body["summary"] == {
+        "records_analyzed": 8,
+        "needs_review": 2,
+        "insights_created": 1,
+        "action_items_created": 1,
+    }
+    assert body["insights"][0]["title"] == "Top: storage_issue"
+    assert body["insights"][0]["evidence"] == [{"ticket_id": "INC-001"}]
+    assert body["action_items"][0]["priority"] == "high"
+
+
+def test_analysis_run_result_returns_404_when_run_missing(client):
+    db = MagicMock()
+    db.query = MagicMock(side_effect=lambda *a, **k: _chain_returning(None))
+    app.dependency_overrides[get_db] = _override_db(db)
+
+    response = client.get(f"/agent-runs/{uuid.uuid4()}/analysis-result")
+    assert response.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────
+# GET /projects/{id}/workflow-status
+# ──────────────────────────────────────────────────────────────
+
+
+def test_workflow_status_happy_path(client):
+    project_id = uuid.uuid4()
+    latest_run = _agent_run()
+    latest_run.id = uuid.uuid4()
+    latest_run.status = "success"
+    scalar_queue = [10, 7, 2, 12, 25]
+    db = MagicMock()
+
+    def _side_effect(*args, **_kwargs):
+        first = args[0]
+        if first is Project:
+            return _chain_returning(_FakeProject(project_id))
+        if first is AgentRun:
+            return _chain_returning(latest_run)
+        q = _chain_returning(0)
+        q.scalar.return_value = scalar_queue.pop(0)
+        return q
+
+    db.query = MagicMock(side_effect=_side_effect)
+    app.dependency_overrides[get_db] = _override_db(db)
+
+    response = client.get(f"/projects/{project_id}/workflow-status")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["project_id"] == str(project_id)
+    assert body["event"] == {
+        "cleaned_ticket_count": 10,
+        "analyzed_ticket_count": 7,
+        "unanalyzed_ticket_count": 3,
+        "latest_run_id": str(latest_run.id),
+        "latest_run_status": "success",
+    }
+    assert body["knowledge"] == {
+        "document_count": 2,
+        "total_pages": 12,
+        "total_chunks": 25,
+        "can_chat": True,
+    }
+
+
+def test_workflow_status_returns_404_when_project_missing(client):
+    db = MagicMock()
+
+    def _side_effect(*args, **_kwargs):
+        if args[0] is Project:
+            return _chain_returning(None)
+        return _chain_returning(0)
+
+    db.query = MagicMock(side_effect=_side_effect)
+    app.dependency_overrides[get_db] = _override_db(db)
+
+    response = client.get(f"/projects/{uuid.uuid4()}/workflow-status")
+    assert response.status_code == 404

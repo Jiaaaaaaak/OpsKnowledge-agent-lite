@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.agent import AgentRun, ToolCall
 from app.models.analysis import ActionItem, IncidentAnalysis, Insight
+from app.models.document import Document, DocumentChunk
 from app.models.project import Project
 from app.models.record import CleanedRecord
 from app.schemas.agent import AgentRunRead, ToolCallRead
@@ -52,6 +53,10 @@ class InsightBrief(BaseModel):
     title: str
     summary: str
     recommendation: str
+
+
+class AnalysisInsightBrief(InsightBrief):
+    evidence: list[Any]
 
 
 class ActionItemBrief(BaseModel):
@@ -81,6 +86,52 @@ class DashboardResponse(BaseModel):
     top_insights: list[InsightBrief]
     open_action_items: list[ActionItemBrief]
     recent_agent_runs: list[AgentRunBrief]
+
+
+class AnalysisResultRun(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID | None
+    task_type: str
+    model_name: str
+    status: str
+    latency_ms: int | None
+    created_at: Any
+    error_message: str | None
+
+
+class AnalysisResultSummary(BaseModel):
+    records_analyzed: int = 0
+    needs_review: int = 0
+    insights_created: int = 0
+    action_items_created: int = 0
+
+
+class AnalysisRunResultResponse(BaseModel):
+    run: AnalysisResultRun
+    summary: AnalysisResultSummary
+    insights: list[AnalysisInsightBrief]
+    action_items: list[ActionItemBrief]
+
+
+class EventWorkflowStatus(BaseModel):
+    cleaned_ticket_count: int
+    analyzed_ticket_count: int
+    unanalyzed_ticket_count: int
+    latest_run_id: uuid.UUID | None
+    latest_run_status: str | None
+
+
+class KnowledgeWorkflowStatus(BaseModel):
+    document_count: int
+    total_pages: int
+    total_chunks: int
+    can_chat: bool
+
+
+class WorkflowStatusResponse(BaseModel):
+    project_id: uuid.UUID
+    event: EventWorkflowStatus
+    knowledge: KnowledgeWorkflowStatus
 
 
 # ── Helper ───────────────────────────────────────────────────
@@ -212,6 +263,144 @@ def get_dashboard(
         top_insights=top_insights,
         open_action_items=open_action_items,
         recent_agent_runs=recent_agent_runs,
+    )
+
+
+@router.get(
+    "/agent-runs/{agent_run_id}/analysis-result",
+    response_model=AnalysisRunResultResponse,
+    summary="Get run-specific incident analysis result",
+)
+def get_analysis_run_result(
+    agent_run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> AnalysisRunResultResponse:
+    run = db.query(AgentRun).filter(AgentRun.id == agent_run_id).first()
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent run not found",
+        )
+
+    insights = (
+        db.query(Insight)
+        .filter(Insight.agent_run_id == agent_run_id)
+        .order_by(Insight.created_at.asc())
+        .all()
+    )
+    action_items = (
+        db.query(ActionItem)
+        .filter(ActionItem.agent_run_id == agent_run_id)
+        .order_by(ActionItem.created_at.asc())
+        .all()
+    )
+    output = run.output_json or {}
+
+    return AnalysisRunResultResponse(
+        run=AnalysisResultRun(
+            id=run.id,
+            project_id=run.project_id,
+            task_type=run.task_type,
+            model_name=run.model_name,
+            status=run.status,
+            latency_ms=run.latency_ms,
+            created_at=run.created_at,
+            error_message=run.error_message,
+        ),
+        summary=AnalysisResultSummary(
+            records_analyzed=int(output.get("records_analyzed", 0) or 0),
+            needs_review=int(output.get("needs_review", 0) or 0),
+            insights_created=int(output.get("insights_created", 0) or 0),
+            action_items_created=int(output.get("action_items_created", 0) or 0),
+        ),
+        insights=[
+            AnalysisInsightBrief(
+                id=i.id,
+                title=i.title,
+                summary=i.summary,
+                evidence=i.evidence,
+                recommendation=i.recommendation,
+            )
+            for i in insights
+        ],
+        action_items=[
+            ActionItemBrief(
+                id=a.id,
+                title=a.title,
+                description=a.description,
+                priority=a.priority,
+                owner_role=a.owner_role,
+                status=a.status,
+            )
+            for a in action_items
+        ],
+    )
+
+
+@router.get(
+    "/projects/{project_id}/workflow-status",
+    response_model=WorkflowStatusResponse,
+    summary="Get project workflow readiness status",
+)
+def get_workflow_status(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> WorkflowStatusResponse:
+    _project_or_404(db, project_id)
+
+    cleaned_count = (
+        db.query(func.count(CleanedRecord.id))
+        .filter(CleanedRecord.project_id == project_id)
+        .scalar()
+        or 0
+    )
+    analyzed_count = (
+        db.query(func.count(IncidentAnalysis.id))
+        .filter(IncidentAnalysis.project_id == project_id)
+        .scalar()
+        or 0
+    )
+    latest_run = (
+        db.query(AgentRun)
+        .filter(AgentRun.project_id == project_id, AgentRun.task_type == "analyze_incidents")
+        .order_by(AgentRun.created_at.desc())
+        .first()
+    )
+    document_count = (
+        db.query(func.count(Document.id))
+        .filter(Document.project_id == project_id)
+        .scalar()
+        or 0
+    )
+    page_total = (
+        db.query(func.coalesce(func.sum(cast(Document.metadata_["page_count"].astext, INTEGER)), 0))
+        .filter(Document.project_id == project_id)
+        .scalar()
+        or 0
+    )
+    chunk_total = (
+        db.query(func.count(DocumentChunk.id))
+        .join(Document, DocumentChunk.document_id == Document.id)
+        .filter(Document.project_id == project_id)
+        .scalar()
+        or 0
+    )
+
+    return WorkflowStatusResponse(
+        project_id=project_id,
+        event=EventWorkflowStatus(
+            cleaned_ticket_count=int(cleaned_count),
+            analyzed_ticket_count=int(analyzed_count),
+            unanalyzed_ticket_count=max(int(cleaned_count) - int(analyzed_count), 0),
+            latest_run_id=latest_run.id if latest_run else None,
+            latest_run_status=latest_run.status if latest_run else None,
+        ),
+        knowledge=KnowledgeWorkflowStatus(
+            document_count=int(document_count),
+            total_pages=int(page_total),
+            total_chunks=int(chunk_total),
+            can_chat=int(document_count) > 0 and int(chunk_total) > 0,
+        ),
     )
 
 
