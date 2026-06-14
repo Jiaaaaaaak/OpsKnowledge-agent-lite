@@ -1,32 +1,19 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, BookOpen, LayoutDashboard, MessageSquare, Settings, PlaySquare, ListTree, UploadCloud, Database } from 'lucide-react';
+import { Activity, BookOpen, LayoutDashboard, MessageSquare, PlaySquare, ListTree } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 
 const navGroups = [
   {
-    title: '專案與結果',
+    title: '工作流程',
     items: [
-      { name: '專案設定', to: '/projects', icon: Settings },
+      { name: '事件洞察流程', to: '/insights/workflow', icon: PlaySquare },
+      { name: '知識庫問答流程', to: '/knowledge/workflow', icon: MessageSquare },
+    ]
+  },
+  {
+    title: '結果與可觀測性',
+    items: [
       { name: '分析儀表板', to: '/dashboard', icon: LayoutDashboard },
-    ]
-  },
-  {
-    title: 'Flow 1: 事件洞察',
-    items: [
-      { name: '匯入事件紀錄', to: '/incident-upload', icon: UploadCloud },
-      { name: '執行 AI 分析', to: '/analysis', icon: PlaySquare },
-    ]
-  },
-  {
-    title: 'Flow 2: 知識庫問答',
-    items: [
-      { name: '上傳技術文件', to: '/document-upload', icon: Database },
-      { name: '智能問答', to: '/chat', icon: MessageSquare },
-    ]
-  },
-  {
-    title: '系統與除錯',
-    items: [
       { name: 'Agent 執行紀錄', to: '/agent-runs', icon: ListTree },
       { name: '系統狀態', to: '/status', icon: Activity },
     ]
@@ -46,7 +33,12 @@ export default function Sidebar() {
       
       <div className="flex-1 overflow-y-auto py-4">
         <div className="px-4 mb-6">
-          <div className="bg-slate-800 rounded px-3 py-2 border border-slate-700">
+          {/* 專案狀態常駐於側邊欄頂端，點擊可前往專案設定 */}
+          <NavLink
+            to="/projects"
+            className="block bg-slate-800 rounded px-3 py-2 border border-slate-700 transition-colors hover:border-indigo-500/50 hover:bg-slate-800/80"
+          >
+            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">目前專案</p>
             {currentProject ? (
               <>
                 <p className="text-sm font-medium text-white truncate" title={currentProject.name}>{currentProject.name}</p>
@@ -55,7 +47,7 @@ export default function Sidebar() {
             ) : (
               <p className="text-sm text-slate-400 italic">（尚未選擇專案）</p>
             )}
-          </div>
+          </NavLink>
         </div>
 
         <nav className="space-y-6 px-2">
