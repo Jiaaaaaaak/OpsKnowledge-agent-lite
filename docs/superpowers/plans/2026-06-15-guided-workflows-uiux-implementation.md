@@ -23,7 +23,13 @@
 - `.superpowers/` remains an untracked local visual-brainstorming cache. It is intentionally not committed or pushed.
 - Implementation progress on `guided-workflows-uiux`:
   - Task 1 completed and committed as `63dd727 feat: link analysis outputs to agent runs`.
-  - Task 2 is in progress with uncommitted backend API/service/test edits.
+  - Task 2 completed and committed as `621ae92 feat: 新增工作流程狀態與分析結果 API`. Fixed a test bug where `first in (Document, DocumentChunk)` triggered SQLAlchemy `__eq__` coercion on a `func.count(...)` expression; that branch was dead (the endpoint queries `func.count(Document.id)`, not the bare class) so it was removed. `tests/test_analyze.py tests/test_dashboard.py` pass (49 passed).
+  - Note: Rule 13 requires Traditional Chinese commit messages; Task 2 onward uses 繁中 commit subjects even though the plan text and Task 1 used English.
+  - Task 3 committed as `3dfeb0c feat: 新增共用工作流程前端元件` (api helpers + 5 shared workflow components; `npm run build` passes).
+  - Task 4 committed as `c8ce4aa feat: 新增事件洞察工作流程與分析結果頁` (EventInsightsWorkflowPage, AnalysisResultPage, routes; legacy routes kept).
+  - Task 5 committed as `4d1ceed feat: 新增知識庫問答工作流程` (KnowledgeWorkflowPage with embedded RAG chat; legacy routes kept).
+  - Task 6 committed as `8bb98d4 feat: 側邊欄改以工作流程為主要導覽`. Spec primary nav lists 5 entries and omits 專案設定; to keep project setup reachable, the persistent project-status box at the sidebar top was made a link to `/projects`. Legacy routes remain available (no redirect), per the approved migration strategy.
+  - Task 7 verification: focused backend tests pass (54 passed); full backend suite passes (268 passed); `frontend npm run build` passes. Manual docker-compose smoke test left to the operator since it requires running dev services.
 
 ---
 
