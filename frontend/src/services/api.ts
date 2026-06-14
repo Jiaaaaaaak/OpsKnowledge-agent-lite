@@ -57,7 +57,14 @@ export const getDashboard = (projectId: string) =>
 export const listAgentRuns = (projectId: string, limit: number = 50) => 
   get(`/projects/${projectId}/agent-runs`, { params: { limit } });
 
-export const listToolCalls = (agentRunId: string) => 
+export const listToolCalls = (agentRunId: string) =>
   get(`/agent-runs/${agentRunId}/tool-calls`);
+
+// ── Guided Workflows ─────────────────────────────────────────
+export const getWorkflowStatus = (projectId: string) =>
+  get(`/projects/${projectId}/workflow-status`);
+
+export const getAnalysisResult = (agentRunId: string) =>
+  get(`/agent-runs/${agentRunId}/analysis-result`);
 
 export default api;
