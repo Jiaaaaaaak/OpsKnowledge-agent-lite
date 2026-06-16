@@ -101,12 +101,12 @@ class OllamaLLMProvider(LLMProvider):
         base_url: str | None = None,
         model: str | None = None,
         temperature: float = 0.1,
-        timeout: float = 60.0,
+        timeout: float | None = None,
     ) -> None:
         self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self._model = model or settings.ollama_model
         self._temperature = temperature
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else settings.ollama_timeout_seconds
 
     def complete(self, system_prompt: str, user_message: str) -> tuple[str, dict]:
         import httpx

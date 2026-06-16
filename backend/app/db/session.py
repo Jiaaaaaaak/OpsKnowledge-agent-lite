@@ -52,6 +52,69 @@ def ensure_vector_schema() -> None:
         )
 
 
+def ensure_analysis_schema() -> None:
+    """Repair additive analysis schema changes for existing PostgreSQL volumes."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE insights ADD COLUMN IF NOT EXISTS agent_run_id UUID"))
+        conn.execute(text("ALTER TABLE action_items ADD COLUMN IF NOT EXISTS agent_run_id UUID"))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_insights_agent_run_id
+                ON insights (agent_run_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_action_items_agent_run_id
+                ON action_items (agent_run_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'insights_agent_run_id_fkey'
+                    ) THEN
+                        ALTER TABLE insights
+                        ADD CONSTRAINT insights_agent_run_id_fkey
+                        FOREIGN KEY (agent_run_id)
+                        REFERENCES agent_runs(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'action_items_agent_run_id_fkey'
+                    ) THEN
+                        ALTER TABLE action_items
+                        ADD CONSTRAINT action_items_agent_run_id_fkey
+                        FOREIGN KEY (agent_run_id)
+                        REFERENCES agent_runs(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+
+
 def check_vector_extension() -> bool:
     try:
         with engine.connect() as conn:

@@ -619,6 +619,7 @@ How to use this trail when something looks wrong:
 | Frontend shows `無法連線到後端 (http://backend:8000)` | Backend container is down or not yet healthy | `make ps` to check status; `make logs-backend` for the cause |
 | Chat / analysis returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
 | Ollama mode can't reach the server from container | The `ollama` service is not healthy, the model has not been pulled, or `DOCKER_OLLAMA_BASE_URL` points to the wrong endpoint | `docker compose ps ollama`; then run `docker compose exec ollama ollama pull qwen2.5:7b-instruct`, or set `DOCKER_OLLAMA_BASE_URL` for an external endpoint |
+| Ollama request times out | Local model is loading or CPU inference is slower than the request timeout | Keep the app running and retry after model warm-up, or increase `OLLAMA_TIMEOUT_SECONDS` in `.env`; use a smaller model for demos if needed |
 | Tests fail with `ModuleNotFoundError` when running `make test-local` | Local `.venv` missing or stale | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
 | Postgres / pgvector data unexpectedly empty after restart | Someone ran `docker compose down -v` or `make clean` | Volumes were dropped on purpose — re-ingest. Use `make down` (without `-v`) to preserve data |
 | Windows / WSL2 path issues with bind mounts | Volume mounts use Linux paths | Run all commands from inside WSL2, not from PowerShell |

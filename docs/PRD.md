@@ -51,3 +51,70 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 4. AI correctly classifies and scores at least 80% of sample incidents.
 5. Every AI invocation is recorded with model name, tokens, and latency.
 6. Demo can be walked through end-to-end in under 10 minutes.
+
+## System Architecture & Tech Stack
+
+OpsKnowledge Agent Lite is a containerized full-stack application. A React single-page app calls a FastAPI backend, which persists everything to PostgreSQL (with the pgvector extension for semantic search) and delegates language/embedding work to a pluggable AI provider.
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, React Router, Tailwind CSS, lucide-react, axios |
+| Frontend tests | Vitest, Testing Library, jsdom |
+| Backend | FastAPI, Uvicorn, SQLAlchemy, Pydantic / pydantic-settings |
+| Backend tests | pytest |
+| Database | PostgreSQL 16 + pgvector (`vector(384)`) |
+| LLM / Embeddings | Pluggable provider: `mock` / `ollama` / `openai`; on-prem default = Ollama (`qwen2.5:7b-instruct`) for LLM + mock embeddings (dim 384) |
+| Packaging / Deploy | Docker Compose (postgres, ollama, backend, frontend) |
+| Observability | `agent_runs` + `tool_calls` audit logging |
+
+- **Service ports (host → container):** frontend `8501`, backend `8000`, PostgreSQL `5432`, Ollama `11434`.
+- **Backend API surface:** `health`, `projects`, `documents`, `uploads`, `chat`, `analyze`, `dashboard`.
+- **AI provider model:** `EMBEDDING_PROVIDER` and `LLM_PROVIDER` independently select `mock`, `ollama`, or `openai`. The built-in default is fully offline (`mock`); the shipped `.env.example` uses Ollama for the LLM and mock embeddings for a private, on-prem-style demo.
+
+## System Architecture Diagram
+
+```text
+┌───────────────────────────────────────────────────────────────────┐
+│ Frontend — React + Vite   (:8501)                                 │
+│ Event Insights | Knowledge Q&A | Dashboard | Agent Runs | Status  │
+└───────────────────────────────────────────────────────────────────┘
+                                 │  REST API (Axios, /api proxy)
+                                 ▼
+┌───────────────────────────────────────────────────────────────────┐
+│ Backend — FastAPI   (:8000)                                       │
+│ routers : /health /projects /documents /uploads                   │
+│           /chat /analyze /dashboard                               │
+│ services: document · vector_store · chat · analysis · llm         │
+└───────────────────────────────────────────────────────────────────┘
+                         │                                        │
+                         │ SQLAlchemy                              provider: mock/Ollama/OpenAI
+                         ▼                                        ▼
+      ┌────────────────────────────────────┐      ┌─────────────────────────────────┐
+      │ PostgreSQL 16 + pgvector  (:5432)  │      │ AI Provider (pluggable)         │
+      │ 10 tables · vector(384) search     │      │ embeddings + completion         │
+      │ audit: agent_runs / tool_calls     │      │ mock / Ollama(:11434) / OpenAI  │
+      └────────────────────────────────────┘      └─────────────────────────────────┘
+```
+
+## User Flows
+
+The product is organized around two guided, step-based workflows. Each step is positioned automatically from the project's `workflow-status` and the user can return to any earlier available step.
+
+### Event Insights Workflow
+
+```mermaid
+flowchart TD
+    P([Select / create project]) --> U["Upload incidents<br/>CSV / Excel / JSON"]
+    U -->|"ETL: clean + normalize"| AN["AI analysis<br/>4-tool agent"]
+    AN -->|"classify → score → insights → actions"| R["Analysis result<br/>(per agent run)"]
+    R --> D["Dashboard / Agent runs"]
+```
+
+### Knowledge Q&A Workflow
+
+```mermaid
+flowchart TD
+    P([Select / create project]) --> UP["Upload PDF documents"]
+    UP -->|"chunk + embed → pgvector"| IDX["Knowledge base ready"]
+    IDX --> ASK["RAG chat<br/>answers with citations"]
+```

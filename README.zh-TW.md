@@ -606,6 +606,7 @@ ORDER BY ar.created_at DESC;
 | Frontend 顯示 `無法連線到後端 (http://backend:8000)` | Backend 容器 down 或還沒 healthy | `make ps` 看狀態；`make logs-backend` 找原因 |
 | Chat / analysis 跳 `OPENAI_API_KEY` 錯 | `.env` 設了 `LLM_PROVIDER=openai` 但 key 空 | 填 `OPENAI_API_KEY` 或改回 `LLM_PROVIDER=mock` |
 | Ollama 模式 backend 連不到服務 | `ollama` service 不健康、模型尚未下載，或 `DOCKER_OLLAMA_BASE_URL` 指到錯的 endpoint | 先看 `docker compose ps ollama`；再執行 `docker compose exec ollama ollama pull qwen2.5:7b-instruct`，或改 `DOCKER_OLLAMA_BASE_URL` 指到外部 endpoint |
+| Ollama request timeout | 本地模型正在載入，或 CPU 推論比 request timeout 慢 | 服務保持啟動後重試一次，或在 `.env` 調高 `OLLAMA_TIMEOUT_SECONDS`；展示時也可改用較小模型 |
 | `make test-local` 跳 `ModuleNotFoundError` | 本機 `.venv` 不存在或舊 | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
 | 重啟後 Postgres / pgvector 資料神祕消失 | 有人下了 `docker compose down -v` 或 `make clean` | volume 是被刻意刪掉的 — 重新匯入。下次用 `make down`（不帶 `-v`）保留資料 |
 | Windows / WSL2 bind mount 路徑問題 | Volume mount 用 Linux 路徑 | 所有指令都在 WSL2 內執行，不要用 PowerShell |

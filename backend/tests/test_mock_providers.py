@@ -222,10 +222,12 @@ class TestOllamaLLMProvider:
 
     def test_uses_settings_defaults(self):
         with patch.object(settings, "ollama_base_url", "http://example:1234"), \
-             patch.object(settings, "ollama_model", "llama3.1"):
+             patch.object(settings, "ollama_model", "llama3.1"), \
+             patch.object(settings, "ollama_timeout_seconds", 180.0):
             provider = OllamaLLMProvider()
         assert provider._base_url == "http://example:1234"
         assert provider._model == "llama3.1"
+        assert provider._timeout == 180.0
 
 
 # ─────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 from sqlalchemy import create_mock_engine
 
 import app.models  # noqa: F401 - registers all ORM models with Base.metadata
-from app.db.session import Base
+from app.db.session import Base, ensure_analysis_schema
 
 
 def test_all_expected_tables_are_registered() -> None:
@@ -56,3 +56,34 @@ def test_analysis_outputs_link_to_agent_runs() -> None:
     index_names = {idx.name for idx in insights.indexes} | {idx.name for idx in action_items.indexes}
     assert "idx_insights_agent_run_id" in index_names
     assert "idx_action_items_agent_run_id" in index_names
+
+
+def test_ensure_analysis_schema_repairs_existing_tables(monkeypatch) -> None:
+    statements: list[str] = []
+
+    class FakeConn:
+        def execute(self, statement):
+            statements.append(str(statement))
+
+    class FakeBegin:
+        def __enter__(self):
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeEngine:
+        def begin(self):
+            return FakeBegin()
+
+    monkeypatch.setattr("app.db.session.engine", FakeEngine())
+
+    ensure_analysis_schema()
+
+    sql = "\n".join(statements)
+    assert "ALTER TABLE insights ADD COLUMN IF NOT EXISTS agent_run_id UUID" in sql
+    assert "ALTER TABLE action_items ADD COLUMN IF NOT EXISTS agent_run_id UUID" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_insights_agent_run_id" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_action_items_agent_run_id" in sql
+    assert "insights_agent_run_id_fkey" in sql
+    assert "action_items_agent_run_id_fkey" in sql
