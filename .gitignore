@@ -46,3 +46,6 @@ demo_data/tickets/*.xlsx
 # 但保留示範用的小型 CSV（ETL / 欄位正規化展示）
 !demo_data/tickets/sample_incidents.csv
 !demo_data/tickets/sample_incidents_messy_columns.csv
+
+# Superpowers 工具暫存狀態（brainstorm、server.pid 等）
+.superpowers/
