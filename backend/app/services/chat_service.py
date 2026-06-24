@@ -8,7 +8,13 @@ from app.core.config import settings
 from app.models.agent import AgentRun, ToolCall
 from app.models.project import Project
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
-from app.services.llm_service import build_rag_prompt, format_citations, get_llm_provider
+from app.services.llm_service import (
+    build_rag_prompt,
+    detect_language,
+    format_citations,
+    get_llm_provider,
+    translate_snippet,
+)
 from app.services.reranker_service import get_reranker_provider
 from app.services.retrieval import get_retrieval_service
 
@@ -61,7 +67,27 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
     llm_ms = int((time.monotonic() - llm_start) * 1000)
     total_ms = int((time.monotonic() - total_start) * 1000)
 
-    citations = [Citation(**c) for c in format_citations(hits)]
+    # 跨語翻譯：偵測提問語言，對「原文語言 ≠ 提問語言」的引用，逐 chunk 將 snippet
+    # 翻成提問語言塞進 snippet_translated；同語言不翻。翻譯掛掉時該筆留 None，不讓 chat 失敗。
+    citation_dicts = format_citations(hits)
+    query_language = detect_language(body.question)
+    translate_ms = 0
+    translated_count = 0
+    translate_failed = 0
+    cross_lingual = [c for c in citation_dicts if c["snippet"] and c["source_language"] != query_language]
+    if cross_lingual:
+        translate_start = time.monotonic()
+        for citation in cross_lingual:
+            try:
+                citation["snippet_translated"] = translate_snippet(
+                    citation["snippet"], query_language, provider=llm
+                )
+                translated_count += 1
+            except Exception:
+                translate_failed += 1
+        translate_ms = int((time.monotonic() - translate_start) * 1000)
+
+    citations = [Citation(**c) for c in citation_dicts]
 
     agent_run_id = uuid.uuid4()
     db.add(
@@ -102,6 +128,23 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
                 },
                 output_json={"status": rerank_status, "returned": len(hits)},
                 latency_ms=rerank_ms,
+            )
+        )
+    if cross_lingual:
+        db.add(
+            ToolCall(
+                agent_run_id=agent_run_id,
+                tool_name="translate",
+                input_json={
+                    "target_language": query_language,
+                    "candidate_count": len(cross_lingual),
+                },
+                output_json={
+                    "status": "fallback" if translate_failed else "success",
+                    "translated": translated_count,
+                    "failed": translate_failed,
+                },
+                latency_ms=translate_ms,
             )
         )
     db.commit()

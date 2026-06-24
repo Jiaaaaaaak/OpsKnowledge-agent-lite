@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # bge-m3（Ollama 多語 embedding）輸出 1024 維。
     embedding_dimensions: int = 1024
     mock_embedding_dim: int = 1024  # MockEmbeddingProvider 預設維度，需與 embedding_dimensions 一致
+    embedding_batch_size: int = 16
 
     # OpenAI-compatible LLM
     openai_api_key: str = "sk-placeholder"
@@ -64,6 +65,9 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_candidate_k: int = 30          # 重排前由 pgvector 召回的候選數
     reranker_timeout_seconds: float = 30.0
+
+    # Agent（自主 tool-calling 檢索）：每次對話最多幾步 LLM↔工具往返，作安全上限避免無限迴圈。
+    agent_max_steps: int = 5
 
 
 settings = Settings()

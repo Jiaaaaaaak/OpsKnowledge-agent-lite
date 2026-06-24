@@ -502,3 +502,63 @@ def test_chat_invalid_project_uuid_returns_422(client: TestClient) -> None:
         json={"question": "valid question"},
     )
     assert response.status_code == 422
+
+
+# ─────────────────────────────────────────────────────────────
+# 跨語翻譯：context 原文 + 翻成提問語言的 snippet
+# ─────────────────────────────────────────────────────────────
+
+def test_chat_translates_cross_lingual_citation_snippet() -> None:
+    # 中文提問 + 英文原文 → citation 帶 source_language 與翻譯後 snippet，並記 translate ToolCall。
+    # 用真實 MockLLMProvider（翻譯為 passthrough），驗證跨語串接與欄位，而非翻譯品質。
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+    from app.services.llm_service import MockLLMProvider
+
+    from app.core.config import settings
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+    english_hit = _hit("c1", "Restart the service with systemctl restart myapp.")
+
+    with patch.object(settings, "reranker_enabled", False), \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.chat_service.get_llm_provider", return_value=MockLLMProvider()):
+        mock_retrieval.return_value.search.return_value = _retrieval_result([english_hit])
+        response = run_rag_chat(project_id, ChatRequest(question="如何重啟服務?", top_k=5), db)
+
+    c = response.citations[0]
+    assert c.source_language == "en"
+    assert c.snippet_translated == c.snippet  # MockLLMProvider 翻譯為 passthrough
+    tool_calls = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], ToolCall)]
+    assert [t.tool_name for t in tool_calls] == ["hybrid_search", "translate"]
+    translate_tc = next(t for t in tool_calls if t.tool_name == "translate")
+    assert translate_tc.input_json["target_language"] == "zh"
+    assert translate_tc.output_json == {"status": "success", "translated": 1, "failed": 0}
+
+
+def test_chat_same_language_skips_translation() -> None:
+    # 中文提問 + 中文原文 → 不翻譯：snippet_translated 為 None，且不記 translate ToolCall。
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+    from app.services.llm_service import MockLLMProvider
+
+    from app.core.config import settings
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+    chinese_hit = _hit("c1", "使用 systemctl restart myapp 重新啟動服務。")
+
+    with patch.object(settings, "reranker_enabled", False), \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.chat_service.get_llm_provider", return_value=MockLLMProvider()):
+        mock_retrieval.return_value.search.return_value = _retrieval_result([chinese_hit])
+        response = run_rag_chat(project_id, ChatRequest(question="如何重啟服務?", top_k=5), db)
+
+    c = response.citations[0]
+    assert c.source_language == "zh"
+    assert c.snippet_translated is None
+    tool_calls = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], ToolCall)]
+    assert [t.tool_name for t in tool_calls] == ["hybrid_search"]
