@@ -9,6 +9,7 @@ from app.models.agent import AgentRun, ToolCall
 from app.models.project import Project
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 from app.services.llm_service import build_rag_prompt, format_citations, get_llm_provider
+from app.services.reranker_service import get_reranker_provider
 from app.services.vector_store import get_vector_store
 
 
@@ -19,13 +20,31 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
 
     total_start = time.monotonic()
 
+    # 第一階段：向量召回。啟用 reranker 時多召回 candidate_k 筆供精排。
+    candidate_k = settings.rerank_candidate_k if settings.reranker_enabled else body.top_k
     retrieval_start = time.monotonic()
     try:
         store = get_vector_store(db_session=db)
-        hits = store.search(str(project_id), body.question, body.top_k)
+        hits = store.search(str(project_id), body.question, candidate_k)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
+
+    # 第二階段：cross-encoder 精排。reranker 掛掉時降級為向量順序，不讓 chat 失敗。
+    rerank_status = "disabled"
+    rerank_ms = 0
+    if settings.reranker_enabled and hits:
+        rerank_start = time.monotonic()
+        try:
+            ranked = get_reranker_provider().rerank(body.question, [h["content"] for h in hits])
+            hits = [{**hits[idx], "rerank_score": score} for idx, score in ranked][: body.top_k]
+            rerank_status = "success"
+        except Exception:
+            hits = hits[: body.top_k]
+            rerank_status = "fallback"
+        rerank_ms = int((time.monotonic() - rerank_start) * 1000)
+    else:
+        hits = hits[: body.top_k]
 
     system_prompt = build_rag_prompt(hits)
     llm = get_llm_provider()
@@ -62,11 +81,25 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
         ToolCall(
             agent_run_id=agent_run_id,
             tool_name="vector_search",
-            input_json={"query": body.question, "top_k": body.top_k, "project_id": str(project_id)},
+            input_json={"query": body.question, "top_k": candidate_k, "project_id": str(project_id)},
             output_json={"hit_count": len(hits), "chunk_ids": [h["chunk_id"] for h in hits]},
             latency_ms=retrieval_ms,
         )
     )
+    if rerank_status in ("success", "fallback"):
+        db.add(
+            ToolCall(
+                agent_run_id=agent_run_id,
+                tool_name="rerank",
+                input_json={
+                    "candidate_k": candidate_k,
+                    "top_k": body.top_k,
+                    "model": settings.reranker_model,
+                },
+                output_json={"status": rerank_status, "returned": len(hits)},
+                latency_ms=rerank_ms,
+            )
+        )
     db.commit()
 
     if llm_status == "error":

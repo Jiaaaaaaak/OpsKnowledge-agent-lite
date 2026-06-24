@@ -57,5 +57,13 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = "bge-m3"
     ollama_timeout_seconds: float = 180.0
 
+    # Reranker（第二階段 cross-encoder，經 HF text-embeddings-inference 提供）
+    # 預設關閉：關閉時走單階段向量檢索，不需額外容器。
+    reranker_enabled: bool = False
+    reranker_base_url: str = "http://localhost:8080"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_candidate_k: int = 30          # 重排前由 pgvector 召回的候選數
+    reranker_timeout_seconds: float = 30.0
+
 
 settings = Settings()

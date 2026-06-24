@@ -58,6 +58,9 @@ logs-postgres:
 logs-ollama:
 	$(COMPOSE) logs -f --tail=200 ollama
 
+logs-reranker:
+	$(COMPOSE) logs -f --tail=200 reranker
+
 ps:
 	$(COMPOSE) ps
 

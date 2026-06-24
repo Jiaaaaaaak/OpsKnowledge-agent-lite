@@ -43,6 +43,19 @@ services:
       retries: 12
       start_period: 10s
 
+  # 第二階段 reranker（HF text-embeddings-inference 提供 bge-reranker-v2-m3）。
+  # 僅在 RERANKER_ENABLED=true 時被後端使用；首次啟動會下載模型（~2GB）到 reranker_data。
+  # GPU 環境可改用 ghcr.io/huggingface/text-embeddings-inference:1.5（CUDA）以降低延遲。
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: opsknowledge_reranker
+    restart: unless-stopped
+    command: [ "--model-id", "BAAI/bge-reranker-v2-m3" ]
+    ports:
+      - "8080:80"
+    volumes:
+      - reranker_data:/data
+
   backend:
     build: ./backend
     container_name: opsknowledge_backend
@@ -56,6 +69,8 @@ services:
       POSTGRES_HOST: postgres
       # Inside Docker, use the compose service hostname for the bundled Ollama.
       OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://ollama:11434}
+      # Inside Docker, point the backend at the bundled reranker service.
+      RERANKER_BASE_URL: ${DOCKER_RERANKER_BASE_URL:-http://reranker:80}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -63,6 +78,9 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      # 不等 healthy：TEI CPU image 無 curl 難做 healthcheck，且後端對 reranker 缺席有 fallback。
+      reranker:
+        condition: service_started
     volumes:
       - ./backend:/app
     command: sh -c "python scripts/create_tables.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -97,3 +115,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  reranker_data:

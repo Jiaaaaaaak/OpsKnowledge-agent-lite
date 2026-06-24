@@ -274,6 +274,99 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     db.commit.assert_called_once()
 
 
+def _hit(chunk_id: str, content: str) -> dict:
+    return {
+        **_SAMPLE_HIT,
+        "chunk_id": chunk_id,
+        "content": content,
+        "metadata": {**_SAMPLE_HIT["metadata"], "chunk_id": chunk_id},
+    }
+
+
+def test_chat_two_stage_reranks_and_records_rerank_tool_call() -> None:
+    # 啟用 reranker：召回 candidate_k 筆 → 精排 → 取 top_k，並多記一筆 rerank ToolCall
+    from app.core.config import settings
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+    candidates = [_hit("c1", "alpha"), _hit("c2", "beta"), _hit("c3", "gamma")]
+
+    with patch.object(settings, "reranker_enabled", True), \
+         patch.object(settings, "rerank_candidate_k", 3), \
+         patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_reranker_provider") as mock_rr, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
+        mock_vs.return_value.search.return_value = candidates
+        # reranker 把第 3 筆（index 2）排到最前
+        mock_rr.return_value.rerank.return_value = [(2, 0.9), (0, 0.5), (1, 0.1)]
+        mock_llm_cls.return_value.complete.return_value = ("ans", {})
+
+        response = run_rag_chat(project_id, ChatRequest(question="q", top_k=2), db)
+
+    # 第一階段以 candidate_k=3 召回；reranker 收到全部 3 筆候選內容
+    assert mock_vs.return_value.search.call_args.args[2] == 3
+    assert mock_rr.return_value.rerank.call_args.args[1] == ["alpha", "beta", "gamma"]
+
+    tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
+    assert [t.tool_name for t in tool_calls] == ["vector_search", "rerank"]
+    rerank_tc = tool_calls[1]
+    assert rerank_tc.output_json["status"] == "success"
+    assert rerank_tc.output_json["returned"] == 2  # 截到 top_k=2
+    # 最終引用順序反映 rerank：c3 排第一
+    assert [c.chunk_id for c in response.citations] == ["c3", "c1"]
+
+
+def test_chat_rerank_fallback_keeps_vector_order_on_error() -> None:
+    # reranker 掛掉時降級為向量順序，chat 仍成功，ToolCall 記為 fallback
+    from app.core.config import settings
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+    candidates = [_hit("c1", "alpha"), _hit("c2", "beta"), _hit("c3", "gamma")]
+
+    with patch.object(settings, "reranker_enabled", True), \
+         patch.object(settings, "rerank_candidate_k", 3), \
+         patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_reranker_provider") as mock_rr, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
+        mock_vs.return_value.search.return_value = candidates
+        mock_rr.return_value.rerank.side_effect = RuntimeError("reranker down")
+        mock_llm_cls.return_value.complete.return_value = ("ans", {})
+
+        response = run_rag_chat(project_id, ChatRequest(question="q", top_k=2), db)
+
+    assert response.answer == "ans"
+    tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
+    rerank_tc = next(t for t in tool_calls if t.tool_name == "rerank")
+    assert rerank_tc.output_json["status"] == "fallback"
+    # 維持向量前 2 筆
+    assert [c.chunk_id for c in response.citations] == ["c1", "c2"]
+
+
+def test_chat_disabled_records_no_rerank_tool_call() -> None:
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+
+    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
+        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_llm_cls.return_value.complete.return_value = ("ans", {})
+        run_rag_chat(project_id, ChatRequest(question="q", top_k=5), db)
+
+    tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
+    assert [t.tool_name for t in tool_calls] == ["vector_search"]
+
+
 def test_chat_route_delegates_to_service(client: TestClient) -> None:
     from app.api.chat import chat
 
