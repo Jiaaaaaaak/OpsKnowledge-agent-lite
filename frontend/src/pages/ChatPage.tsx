@@ -25,12 +25,14 @@ interface UploadedDocument {
 interface ChatDraft {
   input: string;
   topK: number;
+  agentMode: boolean;
   messages: ChatMessage[];
 }
 
 const defaultDraft: ChatDraft = {
   input: '',
   topK: 5,
+  agentMode: false,
   messages: [],
 };
 
@@ -53,6 +55,7 @@ export default function ChatPage() {
   const { currentProject } = useProject();
   const [input, setInput] = useState(defaultDraft.input);
   const [topK, setTopK] = useState(defaultDraft.topK);
+  const [agentMode, setAgentMode] = useState(defaultDraft.agentMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(defaultDraft.messages);
   const [documents, setDocuments] = useState<UploadedDocument[]>([]);
@@ -66,6 +69,7 @@ export default function ChatPage() {
     const draft = loadDraft(projectId);
     setInput(draft.input);
     setTopK(draft.topK);
+    setAgentMode(draft.agentMode);
     setMessages(draft.messages);
     setDraftProjectId(projectId);
   }, [projectId]);
@@ -74,9 +78,9 @@ export default function ChatPage() {
     if (!projectId || draftProjectId !== projectId) return;
     localStorage.setItem(
       getDraftKey(projectId),
-      JSON.stringify({ input, topK, messages })
+      JSON.stringify({ input, topK, agentMode, messages })
     );
-  }, [draftProjectId, input, messages, projectId, topK]);
+  }, [draftProjectId, input, messages, projectId, topK, agentMode]);
 
   const loadDocuments = async () => {
     if (!projectId) return;
@@ -125,7 +129,7 @@ export default function ChatPage() {
     setIsSubmitting(true);
 
     try {
-      const res: any = await chat(currentProject.id, userText, topK);
+      const res: any = await chat(currentProject.id, userText, topK, agentMode);
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -199,16 +203,37 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="flex justify-end items-center px-2">
-        <label className="text-sm text-slate-600 mr-2 font-medium">檢索段落數 (Top K):</label>
-        <input 
-          type="range" 
-          min="1" max="10" 
-          value={topK} 
-          onChange={(e) => setTopK(Number(e.target.value))}
-          className="w-32 accent-indigo-600"
-        />
-        <span className="text-sm font-medium text-slate-900 ml-2 w-4">{topK}</span>
+      <div className="flex flex-col gap-2 px-2 sm:flex-row sm:justify-between sm:items-center">
+        <button
+          type="button"
+          onClick={() => setAgentMode((v) => !v)}
+          className="flex items-center gap-2 self-start text-sm"
+          title={agentMode
+            ? 'Agent 模式：由 LLM 自行決定要不要查、查什麼、查幾次、用哪種檢索策略'
+            : '一般模式：每次提問固定執行一次 hybrid 檢索'}
+        >
+          <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            agentMode ? 'bg-indigo-600' : 'bg-slate-300'
+          }`}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              agentMode ? 'translate-x-4' : 'translate-x-0.5'
+            }`} />
+          </span>
+          <span className={`font-medium ${agentMode ? 'text-indigo-700' : 'text-slate-600'}`}>
+            Agent 模式{agentMode ? '（自主檢索）' : '（一般 RAG）'}
+          </span>
+        </button>
+        <div className="flex items-center self-end sm:self-auto">
+          <label className="text-sm text-slate-600 mr-2 font-medium">檢索段落數 (Top K):</label>
+          <input
+            type="range"
+            min="1" max="10"
+            value={topK}
+            onChange={(e) => setTopK(Number(e.target.value))}
+            className="w-32 accent-indigo-600"
+          />
+          <span className="text-sm font-medium text-slate-900 ml-2 w-4">{topK}</span>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden border border-slate-200">
@@ -252,7 +277,18 @@ export default function ChatPage() {
                             <p className="whitespace-pre-wrap font-mono text-[10px] bg-slate-50 p-2 rounded mb-2">
                               doc: {c.document_id}<br/>chunk: {c.chunk_id}
                             </p>
-                            {c.snippet}
+                            {c.snippet_translated ? (
+                              <>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">
+                                  原文{c.source_language ? ` · ${c.source_language}` : ''}
+                                </p>
+                                <p className="whitespace-pre-wrap mb-2">{c.snippet}</p>
+                                <p className="text-[10px] font-semibold text-indigo-400 uppercase mb-1">翻譯</p>
+                                <p className="whitespace-pre-wrap text-slate-700">{c.snippet_translated}</p>
+                              </>
+                            ) : (
+                              <p className="whitespace-pre-wrap">{c.snippet}</p>
+                            )}
                           </div>
                         </details>
                       ))}

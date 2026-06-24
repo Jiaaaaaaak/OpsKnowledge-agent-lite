@@ -17,15 +17,17 @@ interface ChatMessage {
   content: string;
   citations?: any[];
   isError?: boolean;
+  cached?: boolean;
 }
 
 interface ChatDraft {
   input: string;
   topK: number;
+  agentMode: boolean;
   messages: ChatMessage[];
 }
 
-const defaultDraft: ChatDraft = { input: '', topK: 5, messages: [] };
+const defaultDraft: ChatDraft = { input: '', topK: 5, agentMode: false, messages: [] };
 
 function getDraftKey(projectId: string) {
   return `opsknowledge_rag_chat_${projectId}`;
@@ -41,6 +43,34 @@ function loadDraft(projectId: string): ChatDraft {
   }
 }
 
+// 合併寫入草稿：read-modify-write，避免「輸入框持久化」與「訊息持久化」互相覆蓋。
+// #2 的關鍵——回答抵達時直接寫進草稿，即使使用者已切換頁面（元件卸載）答案也不會遺失。
+function saveDraft(projectId: string, partial: Partial<ChatDraft>) {
+  const cur = loadDraft(projectId);
+  localStorage.setItem(getDraftKey(projectId), JSON.stringify({ ...cur, ...partial }));
+}
+
+// #3 前端問答快取：同專案、相同 文件數+模式+topK+問題 已答過就直接重用，省一次後端往返。
+// 把 document_count 納入 key，等於「上傳新文件後自然失效」的輕量 invalidation。
+function qaCacheKey(projectId: string) {
+  return `opsknowledge_qa_cache_${projectId}`;
+}
+function readQaCache(projectId: string): Record<string, { answer: string; citations: any[] }> {
+  try {
+    return JSON.parse(localStorage.getItem(qaCacheKey(projectId)) || '{}');
+  } catch {
+    return {};
+  }
+}
+function writeQaCache(projectId: string, key: string, value: { answer: string; citations: any[] }) {
+  const cache = readQaCache(projectId);
+  cache[key] = value;
+  localStorage.setItem(qaCacheKey(projectId), JSON.stringify(cache));
+}
+function makeQaKey(docCount: number, agentMode: boolean, topK: number, question: string) {
+  return `${docCount}|${agentMode ? 'agent' : 'rag'}|${topK}|${question.trim()}`;
+}
+
 export default function KnowledgeWorkflowPage() {
   const { currentProject } = useProject();
   const projectId = currentProject?.id;
@@ -54,6 +84,7 @@ export default function KnowledgeWorkflowPage() {
   // 嵌入式 RAG 對話狀態（沿用 ChatPage 的草稿持久化行為）
   const [input, setInput] = useState(defaultDraft.input);
   const [topK, setTopK] = useState(defaultDraft.topK);
+  const [agentMode, setAgentMode] = useState(defaultDraft.agentMode);
   const [messages, setMessages] = useState<ChatMessage[]>(defaultDraft.messages);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
@@ -89,14 +120,16 @@ export default function KnowledgeWorkflowPage() {
     const draft = loadDraft(projectId);
     setInput(draft.input);
     setTopK(draft.topK);
+    setAgentMode(draft.agentMode);
     setMessages(draft.messages);
     setDraftProjectId(projectId);
   }, [projectId]);
 
   useEffect(() => {
     if (!projectId || draftProjectId !== projectId) return;
-    localStorage.setItem(getDraftKey(projectId), JSON.stringify({ input, topK, messages }));
-  }, [draftProjectId, input, messages, projectId, topK]);
+    // messages 不在這裡持久化（改由 handleSubmit 顯式 saveDraft），以免覆蓋非同步抵達的答案。
+    saveDraft(projectId, { input, topK, agentMode });
+  }, [draftProjectId, input, projectId, topK, agentMode]);
 
   const canChat = Boolean(status?.knowledge?.can_chat);
 
@@ -146,32 +179,47 @@ export default function KnowledgeWorkflowPage() {
     if (!input.trim() || isSubmitting || !canChat || !projectId) return;
 
     const userText = input.trim();
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'user', content: userText }]);
+    const docCount = status?.knowledge?.document_count ?? 0;
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userText };
+    // baseMessages 在 closure 內固定，即使元件卸載也能算出正確的最終訊息陣列（#2）。
+    const baseMessages = [...messages, userMsg];
+    setMessages(baseMessages);
     setInput('');
-    setIsSubmitting(true);
+    saveDraft(projectId, { input: '', messages: baseMessages });
 
+    // #3 快取命中：相同 文件數+模式+topK+問題 直接重用先前答案，不打後端。
+    const cacheKey = makeQaKey(docCount, agentMode, topK, userText);
+    const cached = readQaCache(projectId)[cacheKey];
+    if (cached) {
+      const finalMessages: ChatMessage[] = [
+        ...baseMessages,
+        { id: (Date.now() + 1).toString(), role: 'assistant', content: cached.answer, citations: cached.citations, cached: true },
+      ];
+      setMessages(finalMessages);
+      saveDraft(projectId, { messages: finalMessages });
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      const res: any = await chat(projectId, userText, topK);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: res.answer || '（空回覆）',
-          citations: res.citations || [],
-        },
-      ]);
+      const res: any = await chat(projectId, userText, topK, agentMode);
+      const answer = res.answer || '（空回覆）';
+      const citations = res.citations || [];
+      const finalMessages: ChatMessage[] = [
+        ...baseMessages,
+        { id: (Date.now() + 1).toString(), role: 'assistant', content: answer, citations },
+      ];
+      setMessages(finalMessages);
+      saveDraft(projectId, { messages: finalMessages }); // #2 即使已切走，答案也寫進草稿
+      writeQaCache(projectId, cacheKey, { answer, citations }); // #3 存入快取
     } catch (err: any) {
-      // 保留失敗的提問，附帶錯誤訊息供重試
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `發生錯誤: ${err.message}`,
-          isError: true,
-        },
-      ]);
+      // 保留失敗的提問，附帶錯誤訊息供重試（錯誤不進快取）
+      const finalMessages: ChatMessage[] = [
+        ...baseMessages,
+        { id: (Date.now() + 1).toString(), role: 'assistant', content: `發生錯誤: ${err.message}`, isError: true },
+      ];
+      setMessages(finalMessages);
+      saveDraft(projectId, { messages: finalMessages });
     } finally {
       setIsSubmitting(false);
     }
@@ -188,32 +236,61 @@ export default function KnowledgeWorkflowPage() {
       <div className="grid gap-6 md:grid-cols-[1fr_260px]">
         <div className="space-y-6">
           {currentStep === 'knowledge' && (
-            <UploadPanel
-              title="上傳技術文件"
-              description="上傳 PDF 技術文件，系統會自動切塊並建立向量索引。"
-              accept=".pdf"
-              idleLabel="開始上傳"
-              loadingLabel="上傳並建立索引中..."
-              selectedFileLabel="支援 PDF 格式"
-              onUpload={async (file) => {
-                const res = await uploadDocument(projectId!, file);
-                await loadStatus();
-                return res;
-              }}
-              renderResult={(result) => (
-                <div className="space-y-4">
-                  <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
-                    已索引「{result.filename}」：{result.page_count || 0} 頁 · {result.chunk_count || 0} chunks
+            <div className="space-y-6">
+              <UploadPanel
+                title="上傳技術文件"
+                description="上傳 PDF 技術文件，系統會自動切塊並建立向量索引。"
+                accept=".pdf"
+                idleLabel="開始上傳"
+                loadingLabel="上傳並建立索引中..."
+                selectedFileLabel="支援 PDF 格式"
+                onUpload={async (file) => {
+                  const res = await uploadDocument(projectId!, file);
+                  await loadStatus();
+                  return res;
+                }}
+                renderResult={(result) => (
+                  <div className="space-y-4">
+                    <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+                      已索引「{result.filename}」：{result.page_count || 0} 頁 · {result.chunk_count || 0} chunks
+                    </div>
+                    <div className="flex justify-end">
+                      <Button onClick={() => setActiveStep('ask')} disabled={!canChat} className="flex items-center">
+                        下一步：開始提問
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex justify-end">
-                    <Button onClick={() => setActiveStep('ask')} disabled={!canChat} className="flex items-center">
-                      下一步：開始提問
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
+                )}
+              />
+
+              {documents.length > 0 && (
+                <Card>
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                    <FileText className="h-4 w-4 text-indigo-600" />
+                    已上傳文件
+                    <span className="text-xs font-medium text-slate-500">
+                      {documents.length} 份 · {documentSummary.totalPages} 頁 · {documentSummary.totalChunks} chunks
+                    </span>
                   </div>
-                </div>
+                  <ul className="divide-y divide-slate-100">
+                    {documents.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-3 py-2">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                          <span className="truncate text-sm font-medium text-slate-800" title={doc.filename}>
+                            {doc.filename}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-500">
+                          {(doc.page_count || 0)} 頁 · {(doc.chunk_count || 0)} chunks
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
               )}
-            />
+            </div>
           )}
 
           {currentStep === 'ask' && (
@@ -275,6 +352,12 @@ export default function KnowledgeWorkflowPage() {
                                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                               </div>
 
+                              {msg.cached && (
+                                <span className="self-start rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                  ⚡ 快取回覆（與先前相同問題）
+                                </span>
+                              )}
+
                               {msg.citations && msg.citations.length > 0 && (
                                 <div className="mt-2 space-y-2">
                                   <p className="text-xs font-semibold uppercase text-slate-500">
@@ -324,6 +407,27 @@ export default function KnowledgeWorkflowPage() {
                     </div>
 
                     <div className="border-t border-slate-200 bg-white p-4">
+                      <div className="mb-3 flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => setAgentMode((v) => !v)}
+                          className="flex items-center gap-2 text-sm"
+                          title={agentMode
+                            ? 'Agent 模式：由 LLM 自行決定要不要查、查什麼、查幾次、用哪種檢索策略'
+                            : '一般模式：每次提問固定執行一次 hybrid 檢索'}
+                        >
+                          <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            agentMode ? 'bg-indigo-600' : 'bg-slate-300'
+                          }`}>
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              agentMode ? 'translate-x-4' : 'translate-x-0.5'
+                            }`} />
+                          </span>
+                          <span className={`font-medium ${agentMode ? 'text-indigo-700' : 'text-slate-600'}`}>
+                            Agent 模式{agentMode ? '（自主檢索）' : '（一般 RAG）'}
+                          </span>
+                        </button>
+                      </div>
                       <form onSubmit={handleSubmit} className="relative flex items-center">
                         <input
                           type="text"
@@ -359,7 +463,7 @@ export default function KnowledgeWorkflowPage() {
             {statusError ? (
               <p className="text-sm text-red-600">狀態載入失敗：{statusError}</p>
             ) : (
-              <WorkflowStatusPanel status={status} variant="knowledge" />
+              <WorkflowStatusPanel status={status} />
             )}
             <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
               <FileText className="h-3.5 w-3.5" />

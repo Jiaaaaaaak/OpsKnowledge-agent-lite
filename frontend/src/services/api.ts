@@ -4,6 +4,8 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || '/api',
 });
 
+const uploadTimeoutMs = Number(import.meta.env.VITE_UPLOAD_TIMEOUT_MS || 600000);
+
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -27,7 +29,7 @@ export const uploadDocument = (projectId: string, file: File) => {
   formData.append('file', file);
   return post(`/projects/${projectId}/upload/documents`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 180000
+    timeout: uploadTimeoutMs
   });
 };
 
@@ -35,8 +37,10 @@ export const listDocuments = (projectId: string) =>
   get(`/projects/${projectId}/documents`);
 
 // ── Chat ─────────────────────────────────────────────────────
-export const chat = (projectId: string, question: string, top_k: number = 5) =>
-  post(`/projects/${projectId}/chat`, { question, top_k });
+// agent=true 走自主 tool-calling 的 /agent-chat（LLM 自行決定要不要查/查什麼/查幾次/用哪種策略）；
+// agent=false 走固定流程 /chat。兩者回應 shape 相同。
+export const chat = (projectId: string, question: string, top_k: number = 5, agent: boolean = false) =>
+  post(`/projects/${projectId}/${agent ? 'agent-chat' : 'chat'}`, { question, top_k });
 
 // ── Observability ────────────────────────────────────────────
 export const listAgentRuns = (projectId: string, limit: number = 50) =>
