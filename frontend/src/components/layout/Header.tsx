@@ -5,15 +5,15 @@ import { useProject } from '../../context/ProjectContext';
 
 const routeDetails: Record<string, { title: string; description: string }> = {
   '/projects': { title: '專案設定', description: '選擇既有專案或建立新專案。' },
-  '/dashboard': { title: '分析儀表板', description: '檢視事件洞察、高風險項目與建議的行動計畫。' },
-  '/incident-upload': { title: '匯入事件紀錄', description: '上傳 CSV/Excel/JSON 事件資料進行清理與正規化。' },
   '/document-upload': { title: '上傳技術文件', description: '上傳 PDF 技術文件以建立向量索引知識庫。' },
   '/chat': { title: '知識庫問答 (RAG)', description: '基於 RAG 技術檢索文件並回答維運問題。' },
-  '/analysis': { title: '執行 AI 分析', description: '啟動多工具 Agent 進行事件分析與洞察產生。' },
   '/agent-runs': { title: 'Agent 執行紀錄', description: '檢視 AI 代理的歷史執行軌跡與工具呼叫細節。' },
   '/status': { title: '系統狀態', description: '檢視各項後端服務連線健康度。' },
-  '/insights/workflow': { title: '事件洞察流程', description: '依序匯入事件、執行 AI 分析，並檢視分析結果。' },
-  '/knowledge/workflow': { title: '知識庫問答流程', description: '上傳文件建立知識庫，並進行 RAG 對話。' },
+  '/knowledge/workflow': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
+  '/dashboard': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
+  '/incident-upload': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
+  '/analysis': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
+  '/insights/workflow': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
 };
 
 export default function Header() {
