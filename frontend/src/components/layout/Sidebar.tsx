@@ -1,23 +1,21 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, BookOpen, LayoutDashboard, MessageSquare, PlaySquare, ListTree } from 'lucide-react';
+import { Activity, BookOpen, MessageSquare, ListTree } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 
 const navGroups = [
   {
-    title: '工作流程',
+    title: '主要流程',
     items: [
-      { name: '事件洞察流程', to: '/insights/workflow', icon: PlaySquare },
       { name: '知識庫問答流程', to: '/knowledge/workflow', icon: MessageSquare },
-    ]
+    ],
   },
   {
-    title: '結果與可觀測性',
+    title: '可觀測性',
     items: [
-      { name: '分析儀表板', to: '/dashboard', icon: LayoutDashboard },
       { name: 'Agent 執行紀錄', to: '/agent-runs', icon: ListTree },
       { name: '系統狀態', to: '/status', icon: Activity },
-    ]
-  }
+    ],
+  },
 ];
 
 export default function Sidebar() {
