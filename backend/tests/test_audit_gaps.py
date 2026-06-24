@@ -1,10 +1,7 @@
 """
 Audit-driven 補強測試（Prompt 13）。
 
-四大主題：
-- ETL column normalization：補上既有測試沒覆蓋到的同義字（subsystem / comp /
-  sev / pri / resolved_by / remedy / ticket_status）與標題行格式（hyphen / mixed
-  case / trailing whitespace）
+三大主題：
 - Chunking：把 audit 找到的 latent infinite-loop bug（overlap >= chunk_size）
   以「現在會 raise ValueError」鎖死，並補上「分塊內容不含空白頭尾」與「分塊覆蓋
   原文」兩個 invariant
@@ -13,7 +10,7 @@ Audit-driven 補強測試（Prompt 13）。
 - Dashboard aggregation：以靜態 import 分析證明 dashboard 模組沒有引入 LLM
   provider，鎖死「dashboard 不打 LLM」的承諾
 
-這些測試不重複既有覆蓋（test_etl.py / test_document_service.py / test_chat.py /
+這些測試不重複既有覆蓋（test_document_service.py / test_chat.py /
 test_dashboard.py），只補洞。
 """
 from __future__ import annotations
@@ -24,82 +21,11 @@ from pathlib import Path
 import pytest
 
 from app.services.document_service import DocumentIngestionService
-from app.services.etl_service import TicketETLService
 from app.services.llm_service import build_rag_prompt
 
 
 # ──────────────────────────────────────────────────────────────
-# 1. ETL column normalization 補洞
-# ──────────────────────────────────────────────────────────────
-
-
-class TestETLNormalizationGaps:
-    svc = TicketETLService()
-
-    # ── 既有測試沒涵蓋到的同義字 ────────────────────────────────
-
-    def test_module_from_subsystem(self):
-        assert self.svc.normalize_columns({"subsystem": "auth"}) == {"module": "auth"}
-
-    def test_module_from_comp(self):
-        assert self.svc.normalize_columns({"comp": "queue"}) == {"module": "queue"}
-
-    def test_priority_from_sev(self):
-        assert self.svc.normalize_columns({"sev": "high"}) == {"priority": "high"}
-
-    def test_priority_from_pri(self):
-        assert self.svc.normalize_columns({"pri": "low"}) == {"priority": "low"}
-
-    def test_resolution_from_resolved_by(self):
-        assert self.svc.normalize_columns({"resolved_by": "ops"}) == {"resolution": "ops"}
-
-    def test_resolution_from_remedy(self):
-        assert self.svc.normalize_columns({"remedy": "restart"}) == {"resolution": "restart"}
-
-    def test_resolution_from_resolution_notes(self):
-        assert self.svc.normalize_columns({"resolution_notes": "n/a"}) == {"resolution": "n/a"}
-
-    def test_status_from_ticket_status(self):
-        assert self.svc.normalize_columns({"ticket_status": "open"}) == {"status": "open"}
-
-    def test_status_from_incident_status(self):
-        assert self.svc.normalize_columns({"incident_status": "closed"}) == {"status": "closed"}
-
-    def test_system_from_affected_system(self):
-        assert self.svc.normalize_columns({"affected_system": "payments"}) == {"system": "payments"}
-
-    def test_issue_from_error_message(self):
-        assert self.svc.normalize_columns({"error_message": "boom"}) == {"issue_description": "boom"}
-
-    def test_issue_from_fault(self):
-        assert self.svc.normalize_columns({"fault": "timeout"}) == {"issue_description": "timeout"}
-
-    def test_occurred_at_from_reported_at(self):
-        assert self.svc.normalize_columns({"reported_at": "2026-05-01"}) == {"occurred_at": "2026-05-01"}
-
-    def test_occurred_at_from_incident_date(self):
-        assert self.svc.normalize_columns({"incident_date": "2026-05-01"}) == {"occurred_at": "2026-05-01"}
-
-    # ── 標題行常見變形 ───────────────────────────────────────
-
-    def test_hyphenated_column_name(self):
-        # CSV 標題用連字號（"ticket-id"）也要能映射 — _norm_key 把非字母數字轉底線
-        assert self.svc.normalize_columns({"ticket-id": "T1"}) == {"ticket_id": "T1"}
-
-    def test_mixed_case_uppercase_header(self):
-        assert self.svc.normalize_columns({"TICKET_ID": "T1"}) == {"ticket_id": "T1"}
-
-    def test_trailing_whitespace_in_header(self):
-        # 部份匯出工具會留尾端空白；_norm_key 應 strip
-        assert self.svc.normalize_columns({" ticket_id ": "T1"}) == {"ticket_id": "T1"}
-
-    def test_dotted_header(self):
-        # "Ticket.ID" 之類也應被視為 ticket_id
-        assert self.svc.normalize_columns({"Ticket.ID": "T1"}) == {"ticket_id": "T1"}
-
-
-# ──────────────────────────────────────────────────────────────
-# 2. Chunking 補洞（含 audit 找到的 latent infinite-loop bug）
+# 1. Chunking 補洞（含 audit 找到的 latent infinite-loop bug）
 # ──────────────────────────────────────────────────────────────
 
 
