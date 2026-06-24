@@ -39,14 +39,14 @@ IT／維運團隊需管理大量技術文件（手冊、SOP），但面臨以下
 ## 成功標準
 
 1. `/health` 端點在資料庫連線正常時回傳 `{"status": "ok"}`。
-2. PDF 可被上傳、分塊，並透過語意搜尋查詢。
+2. PDF 可被上傳、分塊，並透過 hybrid search 查詢。
 3. RAG 問答能回傳附引用來源、可追溯至原始 chunk 的答案。
 4. 每次 AI 呼叫皆記錄模型名稱、tokens 與延遲。
 5. Demo 可於 10 分鐘內完成端對端走查。
 
 ## 系統架構與技術棧
 
-OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用呼叫 FastAPI 後端，後端將所有資料持久化至 PostgreSQL（透過 pgvector 擴充支援語意搜尋），並將語言／嵌入運算交由可插拔的 AI provider 處理。
+OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用呼叫 FastAPI 後端，後端將所有資料持久化至 PostgreSQL。檢索結合 PostgreSQL full-text search 與 pgvector dense search，語言／嵌入運算則交由可插拔的 AI provider 處理。
 
 | 層級 | 技術 |
 |---|---|
@@ -60,7 +60,7 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
 | 可觀測性 | `agent_runs` ＋ `tool_calls` 稽核紀錄 |
 
 - **服務埠（host → container）：** 前端 `8501`、後端 `8000`、PostgreSQL `5432`、Ollama `11434`。
-- **後端 API 範圍：** `health`、`projects`、`documents`、`uploads`、`chat`、`dashboard`（workflow-status、agent-runs、tool-calls）。
+- **後端 API 範圍：** `health`、`projects`、`documents`、`chat`、`dashboard`（workflow-status、agent-runs、tool-calls）。
 - **AI provider 模型：** `EMBEDDING_PROVIDER` 與 `LLM_PROVIDER` 可各自獨立選擇 `mock`、`ollama` 或 `openai`。內建預設完全離線（`mock`）；專案附帶的 `.env.example` 則以 Ollama 作 LLM、mock 作嵌入，呈現私有／地端風格的展示。
 
 ## 系統架構圖
@@ -74,16 +74,16 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
                              ▼
 ┌──────────────────────────────────────────────────────────┐
 │ 後端 — FastAPI   (:8000)                                 │
-│ 路由 ： /health /projects /documents /uploads            │
-│         /chat /dashboard                                 │
-│ 服務 ： document · vector_store · chat · llm             │
+│ 路由 ： /health /projects /documents /chat              │
+│         /workflow-status /agent-runs /tool-calls        │
+│ 服務 ： document · retrieval · vector_store · chat · llm │
 └──────────────────────────────────────────────────────────┘
                          │                                         │
                          │ SQLAlchemy                               provider：mock/Ollama/OpenAI
                          ▼                                         ▼
       ┌─────────────────────────────────────┐      ┌─────────────────────────────────┐
       │ PostgreSQL 16 + pgvector  (:5432)   │      │ AI Provider（可插拔）           │
-      │ vector(1024) 語意檢索                │      │ 嵌入 + 生成                     │
+      │ full-text + vector(1024) 檢索        │      │ 嵌入 + 生成                     │
       │ 稽核：agent_runs / tool_calls       │      │ mock / Ollama(:11434) / OpenAI  │
       └─────────────────────────────────────┘      └─────────────────────────────────┘
 ```

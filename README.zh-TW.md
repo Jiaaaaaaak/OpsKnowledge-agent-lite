@@ -317,7 +317,6 @@ opsknowledge-agent-lite/
       models/        SQLAlchemy ORM 模型
       schemas/       Pydantic 請求／回應結構
       services/      商業邏輯
-      tools/         AI 工具定義（LLM function call）
       db/            資料庫連線、遷移
       utils/         共用輔助函式
     tests/
@@ -481,14 +480,14 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/agent-runs"
 這兩張表是主要的除錯面 — 沒有其他 log 可對照。
 
 ```sql
--- 最近 10 次 agent run（chat + analysis）
+-- 最近 10 次 RAG chat agent run
 SELECT id, task_type, model_name, status, latency_ms, created_at
 FROM agent_runs
 WHERE project_id = '<your-project-id>'
 ORDER BY created_at DESC
 LIMIT 10;
 
--- 某次 analysis run 的所有 tool calls（依執行順序）
+-- 某次 RAG chat run 的所有 tool calls（依執行順序）
 SELECT tool_name, latency_ms, error_message, output_json
 FROM tool_calls
 WHERE agent_run_id = '<回應中的 agent_run_id>'
@@ -515,7 +514,7 @@ ORDER BY ar.created_at DESC;
 | port 5432 / 8000 / 8501 衝突 | 本機已有 Postgres / 另一個 dev server 佔用 | 停掉那個 process，或改 `docker-compose.yml` host 側的 port mapping（例 `"5433:5432"`） |
 | `backend` 容器一直重啟 | Schema migration 失敗（postgres 還沒真的 ready，或舊 schema 卡 volume） | `make logs-backend` 看 traceback；如 schema 有變，`make clean` 砍 volume（破壞性） |
 | Frontend 顯示 `無法連線到後端 (http://backend:8000)` | Backend 容器 down 或還沒 healthy | `make ps` 看狀態；`make logs-backend` 找原因 |
-| Chat / analysis 跳 `OPENAI_API_KEY` 錯 | `.env` 設了 `LLM_PROVIDER=openai` 但 key 空 | 填 `OPENAI_API_KEY` 或改回 `LLM_PROVIDER=mock` |
+| Chat 跳 `OPENAI_API_KEY` 錯 | `.env` 設了 `LLM_PROVIDER=openai` 但 key 空 | 填 `OPENAI_API_KEY` 或改回 `LLM_PROVIDER=mock` |
 | Ollama 模式 backend 連不到服務 | `ollama` service 不健康、模型尚未下載，或 `DOCKER_OLLAMA_BASE_URL` 指到錯的 endpoint | 先看 `docker compose ps ollama`；再執行 `docker compose exec ollama ollama pull qwen2.5:7b-instruct`，或改 `DOCKER_OLLAMA_BASE_URL` 指到外部 endpoint |
 | Ollama request timeout | 本地模型正在載入，或 CPU 推論比 request timeout 慢 | 服務保持啟動後重試一次，或在 `.env` 調高 `OLLAMA_TIMEOUT_SECONDS`；展示時也可改用較小模型 |
 | `make test-local` 跳 `ModuleNotFoundError` | 本機 `.venv` 不存在或舊 | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |

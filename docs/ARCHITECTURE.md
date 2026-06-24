@@ -51,8 +51,7 @@ graph TD
 | `services/reranker_service.py` | Optional second-stage cross-encoder reranker for fused retrieval candidates |
 | `services/llm_service.py` | `LLMProvider` interface + `OpenAICompatibleLLMProvider`; `build_rag_prompt` and `format_citations` pure functions |
 | `services/chat_service.py` | RAG chat: retrieve → prompt → LLM → citations |
-| `services/log_service.py` | Records every AI run to `agent_runs` / `tool_calls` tables |
-| `tools/` | Individual AI tool definitions (structured function call specs) |
+| `models/agent.py` | `agent_runs` and `tool_calls` persistence models used by chat and observability routes |
 | `db/session.py` | SQLAlchemy engine, session factory, `get_db` dependency |
 | `core/config.py` | All configuration via environment variables (Pydantic Settings) |
 | `LLMProvider` | Abstraction over OpenAI SDK — supports OpenAI or Ollama base URL |

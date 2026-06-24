@@ -38,7 +38,7 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
   → 成功 card 顯示 `chunk_count` 與 `page_count`。
 
 > 重點訴求：「PDF 走 chunk → embed → PostgreSQL + pgvector。一個 upload 按鈕，
-> 完整索引完成，可立即做語意搜尋。」
+> 完整索引完成，可立即做 hybrid search。」
 
 ### 場景 3 · 知識庫問答（RAG）（40 秒）
 

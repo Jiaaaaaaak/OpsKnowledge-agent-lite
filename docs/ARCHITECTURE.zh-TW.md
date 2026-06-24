@@ -51,8 +51,7 @@ graph TD
 | `services/reranker_service.py` | 選用第二階段 cross-encoder reranker，用於重排 fusion 後的候選 chunk |
 | `services/llm_service.py` | `LLMProvider` 介面與 `OpenAICompatibleLLMProvider`；`build_rag_prompt` 和 `format_citations` 純函式 |
 | `services/chat_service.py` | RAG 問答：檢索 → 提示 → LLM → 引用來源 |
-| `services/log_service.py` | 將每次 AI 執行記錄至 `agent_runs` / `tool_calls` 資料表 |
-| `tools/` | 各個 AI 工具定義（結構化 function call 規格） |
+| `models/agent.py` | `agent_runs` 與 `tool_calls` persistence models，供 chat 與觀測路由使用 |
 | `db/session.py` | SQLAlchemy engine、session factory、`get_db` 相依注入 |
 | `core/config.py` | 透過環境變數集中管理所有設定（Pydantic Settings） |
 | `LLMProvider` | OpenAI SDK 的抽象層 — 支援 OpenAI 或 Ollama base URL |

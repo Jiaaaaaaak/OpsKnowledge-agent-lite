@@ -4,40 +4,34 @@
 
 實作檔案：
 - ORM 模型：`backend/app/models/`
-- Pydantic 結構：`backend/app/schemas/`
-- 初始 SQL 遷移：`backend/migrations/001_initial_schema.sql`
-- 建立資料表腳本：`backend/scripts/create_tables.py`
+- Pydantic schemas：`backend/app/schemas/`
+- 初始 SQL schema：`backend/migrations/001_initial_schema.sql`
+- 建表腳本：`backend/scripts/create_tables.py`
 
 ---
 
-## 實體關係圖
+## 實體關係
 
 ```mermaid
 erDiagram
     projects ||--o{ documents : "has"
-    projects ||--o{ raw_records : "has"
-    projects ||--o{ cleaned_records : "has"
-    projects ||--o{ incident_analysis : "has"
-    projects ||--o{ insights : "has"
-    projects ||--o{ action_items : "has"
-    projects |o--o{ agent_runs : "has (nullable)"
-
     documents ||--o{ document_chunks : "split into"
-    cleaned_records ||--o| incident_analysis : "analyzed by"
-    agent_runs ||--o{ tool_calls : "invokes"
+    projects |o--o{ agent_runs : "has"
+    agent_runs ||--o{ tool_calls : "records"
 ```
 
 ---
 
-## 資料表說明
+## 資料表
 
 ### `projects`
-專案（租戶層級的情境）。所有資料的根節點。
+
+專案層級容器，包含文件與 AI 執行紀錄。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
-| id | UUID PK | |
-| name | VARCHAR(255) | |
+| id | UUID PK | `gen_random_uuid()` |
+| name | VARCHAR(255) | 必填 |
 | description | TEXT | nullable |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -45,173 +39,83 @@ erDiagram
 ---
 
 ### `documents`
-上傳的 PDF 等文件 metadata。
+
+上傳 PDF 的 metadata 與伺服器端檔案路徑。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
 | id | UUID PK | |
 | project_id | UUID FK → projects | CASCADE |
-| filename | VARCHAR(255) | |
-| document_type | VARCHAR(100) | pdf / sop / manual |
-| source_path | TEXT | 儲存路徑或 URL |
-| metadata | JSONB | 頁數、語言等 |
+| filename | VARCHAR(255) | 原始檔名 |
+| document_type | VARCHAR(100) | 目前為 `pdf` |
+| source_path | TEXT | `data/uploads/` 底下的檔案路徑 |
+| metadata | JSONB | 頁數與 ingestion metadata |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**索引：** `project_id`、`created_at`
+索引：`project_id`、`created_at`
 
 ---
 
 ### `document_chunks`
-PDF 切分後的文字區塊（與 PostgreSQL + pgvector 對應）。
+
+從 PDF 抽出的文字 chunks。這張表支援 hybrid search 的兩個召回分支。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
 | id | UUID PK | |
 | document_id | UUID FK → documents | CASCADE |
-| chunk_index | INTEGER | 0-based 順序 |
-| content | TEXT | 原始區塊文字 |
-| embedding | vector(1024) | pgvector 語意召回用 dense embedding |
-| search_vector | TSVECTOR | generated English full-text index source |
-| metadata | JSONB | 頁碼、章節等 |
+| chunk_index | INTEGER | 文件內 zero-based 順序 |
+| content | TEXT | 原始 chunk 文字 |
+| embedding | vector(1024) | pgvector dense retrieval 用 embedding |
+| search_vector | TSVECTOR | 由 `content` 產生，供 PostgreSQL full-text retrieval 使用 |
+| metadata | JSONB | 檔名、頁碼、chunk size |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**索引：** `document_id`、`embedding` HNSW、`search_vector` GIN
-
----
-
-### `raw_records`
-ETL 前的原始事件資料（CSV/Excel/JSON 的每一列原樣儲存）。
-
-| 欄位 | 型別 | 備註 |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| source_file | VARCHAR(255) | 上傳的原始檔名 |
-| raw_json | JSONB | 原始列資料 |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**索引：** `project_id`、`created_at`
-
----
-
-### `cleaned_records`
-ETL 後的正規化事件記錄。
-
-| 欄位 | 型別 | 備註 |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| ticket_id | VARCHAR(255) | 來源系統票號 |
-| occurred_at | TIMESTAMPTZ | nullable |
-| system | VARCHAR(255) | 受影響系統 |
-| module | VARCHAR(255) | 子系統/模組 |
-| issue_description | TEXT | |
-| resolution | TEXT | nullable |
-| status | VARCHAR(100) | open / closed / in_progress |
-| priority | VARCHAR(50) | P1–P4 |
-| metadata | JSONB | 來源額外欄位 |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**索引：** `project_id`、`created_at`、`status`、`priority`
-
----
-
-### `incident_analysis`
-LLM 分類與評分結果，與 `cleaned_records` 1:1 對應。
-
-| 欄位 | 型別 | 備註 |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| record_id | UUID FK → cleaned_records | CASCADE |
-| category | VARCHAR(255) | LLM 預測類別 |
-| severity_score | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| sentiment_score | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| confidence | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| needs_review | BOOLEAN | 低信心度旗標 |
-| reason | TEXT | LLM 解釋 |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**索引：** `project_id`、`record_id`
-
----
-
-### `insights`
-LLM 針對整個專案產生的洞察。
-
-| 欄位 | 型別 | 備註 |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| title | VARCHAR(500) | |
-| summary | TEXT | |
-| evidence | JSONB | 支持記錄 ID / 引文清單 |
-| recommendation | TEXT | |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**索引：** `project_id`
-
----
-
-### `action_items`
-從洞察衍生的行動項目。
-
-| 欄位 | 型別 | 備註 |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| title | VARCHAR(500) | |
-| description | TEXT | |
-| priority | VARCHAR(50) | high / medium / low |
-| owner_role | VARCHAR(255) | SRE / Network Engineer 等 |
-| status | VARCHAR(100) | pending / in_progress / done |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**索引：** `project_id`、`status`
+索引：
+- `document_id`
+- `embedding` HNSW，使用 `vector_cosine_ops`
+- `search_vector` GIN
 
 ---
 
 ### `agent_runs`
-所有 AI 執行日誌（可觀測性 / 稽核用）。
+
+每次 AI 互動一筆紀錄。RAG chat 會寫入 `task_type="rag_chat"`。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
 | id | UUID PK | |
 | project_id | UUID FK → projects | nullable，SET NULL |
-| task_type | VARCHAR(255) | classify / score / insight / rag_query |
-| model_name | VARCHAR(255) | gpt-4o-mini 等 |
-| input_json | JSONB | Prompt / 參數 |
-| output_json | JSONB | LLM 回應 |
-| status | VARCHAR(50) | running / success / error |
+| task_type | VARCHAR(255) | 例如 `rag_chat` |
+| model_name | VARCHAR(255) | LLM model 或 `mock` |
+| input_json | JSONB | request payload 摘要 |
+| output_json | JSONB | answer metadata、usage、timings |
+| status | VARCHAR(50) | `success` / `error` |
 | latency_ms | INTEGER | 端對端延遲 |
 | error_message | TEXT | nullable |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**索引：** `project_id`、`created_at`、`status`
+索引：`project_id`、`created_at`、`status`
 
 ---
 
 ### `tool_calls`
-agent_runs 內每次工具呼叫的詳細日誌。
+
+每次 agent run 底下的工具層 trace。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
 | id | UUID PK | |
 | agent_run_id | UUID FK → agent_runs | CASCADE |
-| tool_name | VARCHAR(255) | |
-| input_json | JSONB | |
-| output_json | JSONB | |
+| tool_name | VARCHAR(255) | `hybrid_search`，選用 `rerank` |
+| input_json | JSONB | 工具輸入 |
+| output_json | JSONB | 工具輸出與計數 |
 | error_message | TEXT | nullable |
-| latency_ms | INTEGER | |
+| latency_ms | INTEGER | 工具延遲 |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**索引：** `agent_run_id`
+索引：`agent_run_id`

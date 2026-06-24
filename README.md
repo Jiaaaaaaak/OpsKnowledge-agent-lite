@@ -325,7 +325,6 @@ opsknowledge-agent-lite/
       models/        SQLAlchemy ORM models
       schemas/       Pydantic request/response schemas
       services/      Business logic
-      tools/         AI tool definitions (LLM function calls)
       db/            DB session, migrations
       utils/         Shared helpers
     tests/
@@ -492,14 +491,14 @@ Every agent invocation writes one row to `agent_runs` plus one row per tool call
 correlate against.
 
 ```sql
--- Last 10 agent runs (chat + analysis) for a project
+-- Last 10 RAG chat agent runs for a project
 SELECT id, task_type, model_name, status, latency_ms, created_at
 FROM agent_runs
 WHERE project_id = '<your-project-id>'
 ORDER BY created_at DESC
 LIMIT 10;
 
--- All tool calls for one analysis run (in order)
+-- All tool calls for one RAG chat run (in order)
 SELECT tool_name, latency_ms, error_message, output_json
 FROM tool_calls
 WHERE agent_run_id = '<agent_run_id from the response>'
@@ -526,7 +525,7 @@ How to use this trail when something looks wrong:
 | `bind: address already in use` on port 5432 / 8000 / 8501 | Local Postgres / another dev server is holding the port | Stop the conflicting process, or change the **host** side of the port mapping in `docker-compose.yml` (e.g. `"5433:5432"`) |
 | `backend` container restarts in a loop | Schema migration failed (postgres not actually ready, or volume from older schema lingers) | `make logs-backend` to see the traceback; if schema changed, `make clean` wipes volumes (destructive) |
 | Frontend shows `無法連線到後端 (http://backend:8000)` | Backend container is down or not yet healthy | `make ps` to check status; `make logs-backend` for the cause |
-| Chat / analysis returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
+| Chat returns `OPENAI_API_KEY` errors | `.env` set `LLM_PROVIDER=openai` but key is empty | Either fill `OPENAI_API_KEY` in `.env`, or switch to `LLM_PROVIDER=mock` |
 | Ollama mode can't reach the server from container | The `ollama` service is not healthy, the model has not been pulled, or `DOCKER_OLLAMA_BASE_URL` points to the wrong endpoint | `docker compose ps ollama`; then run `docker compose exec ollama ollama pull qwen2.5:7b-instruct`, or set `DOCKER_OLLAMA_BASE_URL` for an external endpoint |
 | Ollama request times out | Local model is loading or CPU inference is slower than the request timeout | Keep the app running and retry after model warm-up, or increase `OLLAMA_TIMEOUT_SECONDS` in `.env`; use a smaller model for demos if needed |
 | Tests fail with `ModuleNotFoundError` when running `make test-local` | Local `.venv` missing or stale | `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |

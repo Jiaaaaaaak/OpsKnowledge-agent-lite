@@ -5,213 +5,118 @@ English | [繁體中文](DATA_MODEL.zh-TW.md)
 Implementation files:
 - ORM models: `backend/app/models/`
 - Pydantic schemas: `backend/app/schemas/`
-- Initial SQL migration: `backend/migrations/001_initial_schema.sql`
+- Initial SQL schema: `backend/migrations/001_initial_schema.sql`
 - Table creation script: `backend/scripts/create_tables.py`
 
 ---
 
-## Entity Relationship Diagram
+## Entity Relationship
 
 ```mermaid
 erDiagram
     projects ||--o{ documents : "has"
-    projects ||--o{ raw_records : "has"
-    projects ||--o{ cleaned_records : "has"
-    projects ||--o{ incident_analysis : "has"
-    projects ||--o{ insights : "has"
-    projects ||--o{ action_items : "has"
-    projects |o--o{ agent_runs : "has (nullable)"
-
     documents ||--o{ document_chunks : "split into"
-    cleaned_records ||--o| incident_analysis : "analyzed by"
-    agent_runs ||--o{ tool_calls : "invokes"
+    projects |o--o{ agent_runs : "has"
+    agent_runs ||--o{ tool_calls : "records"
 ```
 
 ---
 
-## Table Reference
+## Tables
 
 ### `projects`
-A project (tenant-level context). The root node for all data.
+
+Project-level container for documents and AI run logs.
 
 | Column | Type | Notes |
 |---|---|---|
-| id | UUID PK | |
-| name | VARCHAR(255) | |
-| description | TEXT | nullable |
+| id | UUID PK | `gen_random_uuid()` |
+| name | VARCHAR(255) | Required |
+| description | TEXT | Nullable |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
 ---
 
 ### `documents`
-Metadata for uploaded documents such as PDFs.
+
+Uploaded PDF metadata and server-side source path.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | project_id | UUID FK → projects | CASCADE |
-| filename | VARCHAR(255) | |
-| document_type | VARCHAR(100) | pdf / sop / manual |
-| source_path | TEXT | Storage path or URL |
-| metadata | JSONB | Page count, language, etc. |
+| filename | VARCHAR(255) | Original filename |
+| document_type | VARCHAR(100) | Currently `pdf` |
+| source_path | TEXT | File path under `data/uploads/` |
+| metadata | JSONB | Page count and ingestion metadata |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**Indexes:** `project_id`, `created_at`
+Indexes: `project_id`, `created_at`
 
 ---
 
 ### `document_chunks`
-Text chunks produced by splitting a PDF (mapped to PostgreSQL + pgvector).
+
+Text chunks extracted from uploaded PDFs. This table supports both branches of
+hybrid search.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | document_id | UUID FK → documents | CASCADE |
-| chunk_index | INTEGER | 0-based order |
+| chunk_index | INTEGER | Zero-based order within the document |
 | content | TEXT | Raw chunk text |
 | embedding | vector(1024) | Dense embedding for pgvector retrieval |
-| search_vector | TSVECTOR | Generated English full-text index source |
-| metadata | JSONB | Page number, section, etc. |
+| search_vector | TSVECTOR | Generated from `content` for PostgreSQL full-text retrieval |
+| metadata | JSONB | Filename, page number, chunk size |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**Indexes:** `document_id`, HNSW on `embedding`, GIN on `search_vector`
-
----
-
-### `raw_records`
-Raw incident data before ETL (each CSV/Excel/JSON row stored as-is).
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| source_file | VARCHAR(255) | Original uploaded filename |
-| raw_json | JSONB | Raw row data |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**Indexes:** `project_id`, `created_at`
-
----
-
-### `cleaned_records`
-Normalized incident records after ETL.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| ticket_id | VARCHAR(255) | Source system ticket number |
-| occurred_at | TIMESTAMPTZ | nullable |
-| system | VARCHAR(255) | Affected system |
-| module | VARCHAR(255) | Subsystem / module |
-| issue_description | TEXT | |
-| resolution | TEXT | nullable |
-| status | VARCHAR(100) | open / closed / in_progress |
-| priority | VARCHAR(50) | P1–P4 |
-| metadata | JSONB | Extra source fields |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**Indexes:** `project_id`, `created_at`, `status`, `priority`
-
----
-
-### `incident_analysis`
-LLM classification and scoring results, 1:1 with `cleaned_records`.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| record_id | UUID FK → cleaned_records | CASCADE |
-| category | VARCHAR(255) | LLM-predicted category |
-| severity_score | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| sentiment_score | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| confidence | NUMERIC(5,4) | 0.0000 – 1.0000 |
-| needs_review | BOOLEAN | Low-confidence flag |
-| reason | TEXT | LLM explanation |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**Indexes:** `project_id`, `record_id`
-
----
-
-### `insights`
-Project-wide insights generated by the LLM.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| title | VARCHAR(500) | |
-| summary | TEXT | |
-| evidence | JSONB | Supporting record IDs / citation list |
-| recommendation | TEXT | |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**Indexes:** `project_id`
-
----
-
-### `action_items`
-Action items derived from insights.
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID PK | |
-| project_id | UUID FK → projects | CASCADE |
-| title | VARCHAR(500) | |
-| description | TEXT | |
-| priority | VARCHAR(50) | high / medium / low |
-| owner_role | VARCHAR(255) | SRE / Network Engineer, etc. |
-| status | VARCHAR(100) | pending / in_progress / done |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-**Indexes:** `project_id`, `status`
+Indexes:
+- `document_id`
+- HNSW on `embedding` using `vector_cosine_ops`
+- GIN on `search_vector`
 
 ---
 
 ### `agent_runs`
-Logs of all AI runs (for observability / auditing).
+
+One row per AI interaction. RAG chat writes `task_type="rag_chat"`.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
-| project_id | UUID FK → projects | nullable, SET NULL |
-| task_type | VARCHAR(255) | classify / score / insight / rag_query |
-| model_name | VARCHAR(255) | gpt-4o-mini, etc. |
-| input_json | JSONB | Prompt / parameters |
-| output_json | JSONB | LLM response |
-| status | VARCHAR(50) | running / success / error |
+| project_id | UUID FK → projects | Nullable, SET NULL |
+| task_type | VARCHAR(255) | e.g. `rag_chat` |
+| model_name | VARCHAR(255) | LLM model or `mock` |
+| input_json | JSONB | Request payload summary |
+| output_json | JSONB | Answer metadata, usage, timings |
+| status | VARCHAR(50) | `success` / `error` |
 | latency_ms | INTEGER | End-to-end latency |
-| error_message | TEXT | nullable |
+| error_message | TEXT | Nullable |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**Indexes:** `project_id`, `created_at`, `status`
+Indexes: `project_id`, `created_at`, `status`
 
 ---
 
 ### `tool_calls`
-Detailed log of each tool call within an agent_run.
+
+Detailed tool-level trace for each agent run.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | agent_run_id | UUID FK → agent_runs | CASCADE |
-| tool_name | VARCHAR(255) | |
-| input_json | JSONB | |
-| output_json | JSONB | |
-| error_message | TEXT | nullable |
-| latency_ms | INTEGER | |
+| tool_name | VARCHAR(255) | `hybrid_search`, optional `rerank` |
+| input_json | JSONB | Tool input |
+| output_json | JSONB | Tool output and counts |
+| error_message | TEXT | Nullable |
+| latency_ms | INTEGER | Tool latency |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**Indexes:** `agent_run_id`
+Indexes: `agent_run_id`

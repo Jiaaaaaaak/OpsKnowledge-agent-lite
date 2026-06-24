@@ -39,14 +39,14 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 ## Success Criteria
 
 1. `/health` endpoint returns `{"status": "ok"}` with DB connected.
-2. A PDF can be uploaded, chunked, and queried via semantic search.
+2. A PDF can be uploaded, chunked, and queried via hybrid search.
 3. RAG chat returns answers with citations traceable to source chunks.
 4. Every AI invocation is recorded with model name, tokens, and latency.
 5. Demo can be walked through end-to-end in under 10 minutes.
 
 ## System Architecture & Tech Stack
 
-OpsKnowledge Agent Lite is a containerized full-stack application. A React single-page app calls a FastAPI backend, which persists everything to PostgreSQL (with the pgvector extension for semantic search) and delegates language/embedding work to a pluggable AI provider.
+OpsKnowledge Agent Lite is a containerized full-stack application. A React single-page app calls a FastAPI backend, which persists everything to PostgreSQL. Retrieval combines PostgreSQL full-text search with pgvector dense search, then delegates language/embedding work to pluggable AI providers.
 
 | Layer | Technology |
 |---|---|
@@ -60,7 +60,7 @@ OpsKnowledge Agent Lite is a containerized full-stack application. A React singl
 | Observability | `agent_runs` + `tool_calls` audit logging |
 
 - **Service ports (host → container):** frontend `8501`, backend `8000`, PostgreSQL `5432`, Ollama `11434`.
-- **Backend API surface:** `health`, `projects`, `documents`, `uploads`, `chat`, `dashboard` (workflow-status, agent-runs, tool-calls).
+- **Backend API surface:** `health`, `projects`, `documents`, `chat`, `dashboard` (workflow-status, agent-runs, tool-calls).
 - **AI provider model:** `EMBEDDING_PROVIDER` and `LLM_PROVIDER` independently select `mock`, `ollama`, or `openai`. The built-in default is fully offline (`mock`); the shipped `.env.example` uses Ollama for the LLM and mock embeddings for a private, on-prem-style demo.
 
 ## System Architecture Diagram
@@ -74,16 +74,16 @@ OpsKnowledge Agent Lite is a containerized full-stack application. A React singl
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
 │ Backend — FastAPI   (:8000)                                       │
-│ routers : /health /projects /documents /uploads                   │
-│           /chat /dashboard                                        │
-│ services: document · vector_store · chat · llm                    │
+│ routers : /health /projects /documents /chat                      │
+│           /workflow-status /agent-runs /tool-calls                │
+│ services: document · retrieval · vector_store · chat · llm        │
 └───────────────────────────────────────────────────────────────────┘
                          │                                        │
                          │ SQLAlchemy                              provider: mock/Ollama/OpenAI
                          ▼                                        ▼
       ┌────────────────────────────────────┐      ┌─────────────────────────────────┐
       │ PostgreSQL 16 + pgvector  (:5432)  │      │ AI Provider (pluggable)         │
-      │ vector(1024) search                 │      │ embeddings + completion         │
+      │ full-text + vector(1024) search     │      │ embeddings + completion         │
       │ audit: agent_runs / tool_calls     │      │ mock / Ollama(:11434) / OpenAI  │
       └────────────────────────────────────┘      └─────────────────────────────────┘
 ```

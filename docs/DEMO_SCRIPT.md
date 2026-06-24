@@ -38,7 +38,7 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
   → success card shows `chunk_count` and `page_count`.
 
 > Talking point: "PDF is chunked → embedded → PostgreSQL + pgvector. One upload click,
-> fully indexed and ready for semantic search."
+> fully indexed and ready for hybrid search."
 
 ### Scene 3 · Knowledge Chat (RAG) (40s)
 
@@ -89,7 +89,7 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
   to hosted OpenAI or fully deterministic mock providers with `.env` only.
 - **Pydantic at the LLM boundary** — every structured output is validated; failures
   are surfaced into `tool_calls.error_message`, not silently swallowed (Rule 12).
-- **Dashboard read/write split** — workflow-status endpoint never calls the LLM. Fast,
+- **Observability read/write split** — workflow-status endpoint never calls the LLM. Fast,
   deterministic, safe to auto-refresh.
 - **Provider switchability** — `mock`, `ollama`, `openai` — one `.env` change, no code change.
 
