@@ -2,15 +2,10 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ProjectProvider } from './context/ProjectContext';
 import AppLayout from './components/layout/AppLayout';
 import ProjectPage from './pages/ProjectPage';
-import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
-import IncidentUploadPage from './pages/IncidentUploadPage';
 import DocumentUploadPage from './pages/DocumentUploadPage';
-import AnalysisPage from './pages/AnalysisPage';
 import AgentRunsPage from './pages/AgentRunsPage';
 import SystemStatusPage from './pages/SystemStatusPage';
-import EventInsightsWorkflowPage from './pages/EventInsightsWorkflowPage';
-import AnalysisResultPage from './pages/AnalysisResultPage';
 import KnowledgeWorkflowPage from './pages/KnowledgeWorkflowPage';
 
 function App() {
@@ -21,13 +16,13 @@ function App() {
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectPage />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="incident-upload" element={<IncidentUploadPage />} />
+            <Route path="dashboard" element={<Navigate to="/knowledge/workflow" replace />} />
+            <Route path="incident-upload" element={<Navigate to="/knowledge/workflow" replace />} />
             <Route path="document-upload" element={<DocumentUploadPage />} />
             <Route path="chat" element={<ChatPage />} />
-            <Route path="analysis" element={<AnalysisPage />} />
-            <Route path="insights/workflow" element={<EventInsightsWorkflowPage />} />
-            <Route path="analysis/result/:agentRunId" element={<AnalysisResultPage />} />
+            <Route path="analysis" element={<Navigate to="/knowledge/workflow" replace />} />
+            <Route path="insights/workflow" element={<Navigate to="/knowledge/workflow" replace />} />
+            <Route path="analysis/result/:agentRunId" element={<Navigate to="/knowledge/workflow" replace />} />
             <Route path="knowledge/workflow" element={<KnowledgeWorkflowPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="status" element={<SystemStatusPage />} />
