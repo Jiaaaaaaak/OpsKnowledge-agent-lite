@@ -91,10 +91,10 @@ export default function ProjectPage() {
                       className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate('/incident-upload');
+                        navigate('/knowledge/workflow');
                       }}
                     >
-                      下一步：匯入事件紀錄
+                      下一步：建立知識庫
                       <ArrowRight className="w-4 h-4 ml-1.5" />
                     </Button>
                   </div>
