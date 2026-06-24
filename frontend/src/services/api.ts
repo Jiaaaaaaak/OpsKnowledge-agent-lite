@@ -31,30 +31,15 @@ export const uploadDocument = (projectId: string, file: File) => {
   });
 };
 
-export const uploadTickets = (projectId: string, file: File) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  return post(`/projects/${projectId}/upload/tickets`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000
-  });
-};
-
 export const listDocuments = (projectId: string) =>
   get(`/projects/${projectId}/documents`);
 
-// ── Chat & Analysis ──────────────────────────────────────────
-export const chat = (projectId: string, question: string, top_k: number = 5) => 
+// ── Chat ─────────────────────────────────────────────────────
+export const chat = (projectId: string, question: string, top_k: number = 5) =>
   post(`/projects/${projectId}/chat`, { question, top_k });
 
-export const analyzeIncidents = (projectId: string) => 
-  post(`/projects/${projectId}/analyze/incidents`, null, { timeout: 600000 });
-
-// ── Dashboard / Observability ────────────────────────────────
-export const getDashboard = (projectId: string) => 
-  get(`/projects/${projectId}/dashboard`);
-
-export const listAgentRuns = (projectId: string, limit: number = 50) => 
+// ── Observability ────────────────────────────────────────────
+export const listAgentRuns = (projectId: string, limit: number = 50) =>
   get(`/projects/${projectId}/agent-runs`, { params: { limit } });
 
 export const listToolCalls = (agentRunId: string) =>
@@ -63,8 +48,5 @@ export const listToolCalls = (agentRunId: string) =>
 // ── Guided Workflows ─────────────────────────────────────────
 export const getWorkflowStatus = (projectId: string) =>
   get(`/projects/${projectId}/workflow-status`);
-
-export const getAnalysisResult = (agentRunId: string) =>
-  get(`/agent-runs/${agentRunId}/analysis-result`);
 
 export default api;

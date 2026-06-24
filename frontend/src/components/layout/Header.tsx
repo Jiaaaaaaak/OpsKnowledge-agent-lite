@@ -10,10 +10,6 @@ const routeDetails: Record<string, { title: string; description: string }> = {
   '/agent-runs': { title: 'Agent 執行紀錄', description: '檢視 AI 代理的歷史執行軌跡與工具呼叫細節。' },
   '/status': { title: '系統狀態', description: '檢視各項後端服務連線健康度。' },
   '/knowledge/workflow': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
-  '/dashboard': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
-  '/incident-upload': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
-  '/analysis': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
-  '/insights/workflow': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },
 };
 
 export default function Header() {

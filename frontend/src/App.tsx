@@ -16,13 +16,8 @@ function App() {
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectPage />} />
-            <Route path="dashboard" element={<Navigate to="/knowledge/workflow" replace />} />
-            <Route path="incident-upload" element={<Navigate to="/knowledge/workflow" replace />} />
             <Route path="document-upload" element={<DocumentUploadPage />} />
             <Route path="chat" element={<ChatPage />} />
-            <Route path="analysis" element={<Navigate to="/knowledge/workflow" replace />} />
-            <Route path="insights/workflow" element={<Navigate to="/knowledge/workflow" replace />} />
-            <Route path="analysis/result/:agentRunId" element={<Navigate to="/knowledge/workflow" replace />} />
             <Route path="knowledge/workflow" element={<KnowledgeWorkflowPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="status" element={<SystemStatusPage />} />
