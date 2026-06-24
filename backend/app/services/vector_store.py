@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.embedding_service import EmbeddingProvider, get_embedding_provider
 
@@ -71,7 +72,7 @@ class VectorStoreService:
         """Embed chunks and update document_chunks.embedding."""
         if not chunks:
             return 0
-        embeddings = self._embedder.embed([c.content for c in chunks])
+        batch_size = max(1, settings.embedding_batch_size)
         update_sql = text(
             """
             UPDATE document_chunks
@@ -80,14 +81,24 @@ class VectorStoreService:
             """
         )
         with self._session_scope() as (db, _owns_session):
-            for chunk, embedding in zip(chunks, embeddings):
-                db.execute(
-                    update_sql,
-                    {
-                        "chunk_id": chunk.chunk_id,
-                        "embedding": self._vector_literal(embedding),
-                    },
-                )
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start:start + batch_size]
+                embeddings = self._embedder.embed([c.content for c in batch])
+                for chunk, embedding in zip(batch, embeddings):
+                    result = db.execute(
+                        update_sql,
+                        {
+                            "chunk_id": chunk.chunk_id,
+                            "embedding": self._vector_literal(embedding),
+                        },
+                    )
+                    # 大聲報錯：UPDATE 沒命中代表該 chunk 尚未寫入 DB（呼叫端漏了 flush），
+                    # 否則 embedding 會靜默維持 NULL、向量檢索失效。
+                    if result.rowcount == 0:
+                        raise RuntimeError(
+                            f"embedding UPDATE 未命中 chunk {chunk.chunk_id}："
+                            "chunk 尚未寫入資料庫（呼叫端需先 flush/insert）。"
+                        )
         return len(chunks)
 
     def delete_chunks(self, chunk_ids: list[str]) -> None:

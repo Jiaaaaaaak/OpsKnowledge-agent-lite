@@ -437,6 +437,7 @@ class TestIngestWithVectorStore:
         call_order: list[str] = []
         mock_db = MagicMock()
         mock_db.add.side_effect = capture_add
+        mock_db.flush.side_effect = lambda: call_order.append("flush")
         mock_db.commit.side_effect = lambda: call_order.append("commit")
 
         vector_store = MagicMock()
@@ -452,9 +453,10 @@ class TestIngestWithVectorStore:
 
         # vector store 的 chunk_id 必須等同 PostgreSQL document_chunks.id（之後才能對回）
         assert {str(c.id) for c in added_chunks} == {p.chunk_id for p in payloads}
-        # metadata 必帶 project_id，且 embedding 須在 commit 之前完成
+        # metadata 必帶 project_id；chunk 必須先 flush 落 DB，embedding 才在 commit 前寫入。
+        # 順序錯（embed 早於 flush）→ UPDATE embedding 會 match 0 列、靜默維持 NULL。
         assert all(p.project_id == str(project_id) for p in payloads)
-        assert call_order == ["embed", "commit"]
+        assert call_order == ["flush", "embed", "commit"]
 
     @patch("app.services.document_service.PdfReader")
     def test_commit_failure_removes_vector_chunks(self, mock_reader_cls):

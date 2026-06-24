@@ -328,6 +328,10 @@ class DocumentIngestionService:
         # 先 embed 並寫入 PostgreSQL pgvector 欄位，成功後才 commit；embedding 失敗則不留下半套資料。
         vector_chunk_ids: list[str] = []
         if self._vector_store is not None:
+            # SessionLocal 為 autoflush=False，而 add_chunks 以 UPDATE ... WHERE id 寫 embedding。
+            # 必須先 flush 讓 chunk INSERT 落到 DB，否則 UPDATE match 不到任何列、embedding 會
+            # 靜默維持 NULL（content 仍於 commit 時寫入 → 半套資料、向量檢索失效）。
+            db.flush()
             self._vector_store.add_chunks(payloads)
             vector_chunk_ids = [p.chunk_id for p in payloads]
 
