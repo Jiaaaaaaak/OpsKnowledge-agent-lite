@@ -47,10 +47,19 @@ services:
   # 僅在 RERANKER_ENABLED=true 時被後端使用；首次啟動會下載模型（~2GB）到 reranker_data。
   # GPU 環境可改用 ghcr.io/huggingface/text-embeddings-inference:1.5（CUDA）以降低延遲。
   reranker:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
     container_name: opsknowledge_reranker
     restart: unless-stopped
-    command: [ "--model-id", "BAAI/bge-reranker-v2-m3" ]
+    # CPU-only：縮小 warmup batch 避免 16384 預設值在 CPU 上 warmup 撐爆/卡死；
+    # auto-truncate 讓過長輸入截斷而非報錯。
+    command:
+      - "--model-id"
+      - "BAAI/bge-reranker-v2-m3"
+      - "--max-batch-tokens"
+      - "2048"
+      - "--max-client-batch-size"
+      - "32"
+      - "--auto-truncate"
     ports:
       - "8080:80"
     volumes:
