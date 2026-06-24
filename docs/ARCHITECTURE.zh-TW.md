@@ -47,6 +47,8 @@ graph TD
 | `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 PostgreSQL + pgvector（透過注入的 `VectorStoreService`） |
 | `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
 | `services/vector_store.py` | 封裝 PostgreSQL + pgvector 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
+| `services/retrieval/` | 模組化 hybrid retrieval：pgvector 語意召回、PostgreSQL full-text 召回、reciprocal-rank fusion |
+| `services/reranker_service.py` | 選用第二階段 cross-encoder reranker，用於重排 fusion 後的候選 chunk |
 | `services/llm_service.py` | `LLMProvider` 介面與 `OpenAICompatibleLLMProvider`；`build_rag_prompt` 和 `format_citations` 純函式 |
 | `services/chat_service.py` | RAG 問答：檢索 → 提示 → LLM → 引用來源 |
 | `services/log_service.py` | 將每次 AI 執行記錄至 `agent_runs` / `tool_calls` 資料表 |
@@ -84,8 +86,11 @@ POST /projects/{id}/upload/documents
        { document_id, filename, page_count, chunk_count, source_path }
 
 GET /projects/{id}/search?query=...&top_k=5
-  └─ 嵌入 query → PostgreSQL + pgvector query（where project_id == {id}）→ top-k chunks
-       每筆 hit：{ chunk_id, content, metadata, distance, score }
+  └─ HybridRetrievalService.search(project_id, query, top_k)
+       ├─ VectorRetriever → 嵌入 query → pgvector cosine search
+       ├─ KeywordRetriever → PostgreSQL websearch_to_tsquery full-text search
+       └─ ReciprocalRankFusion → 依 chunk_id 去重並回傳 top-k chunks
+       每筆 hit：{ chunk_id, content, metadata, fusion_score, sources, scores }
        chunk_id 可 1:1 對回 PostgreSQL 的 document_chunks 列
 ```
 
@@ -96,9 +101,12 @@ POST /projects/{id}/chat  { question, top_k }
   │
   ├─ Project 404 防護
   │
-  ├─ VectorStoreService.search(project_id, question, top_k)
-  │    └─ 嵌入問題 → PostgreSQL + pgvector query（where project_id == {id}）→ top-k hits
-  │         每筆 hit：{ chunk_id, content, metadata, distance, score }
+  ├─ HybridRetrievalService.search(project_id, question, candidate_k)
+  │    └─ vector recall + full-text recall + reciprocal-rank fusion
+  │         每筆 hit：{ chunk_id, content, metadata, fusion_score, sources, scores }
+  │
+  ├─ 選用 reranker
+  │    └─ 若 RERANKER_ENABLED=true，重排 fused candidates 並保留 top_k
   │
   ├─ build_rag_prompt(hits)
   │    └─ 編號 context 區塊 + 幻覺防護規則
@@ -110,7 +118,8 @@ POST /projects/{id}/chat  { question, top_k }
   │    └─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 字元) }
   │
   ├─ AgentRun INSERT（task_type="rag_chat", status, latency_ms, input_json, output_json）
-  │    └─ ToolCall INSERT（tool_name="vector_search", latency_ms, hit_count, chunk_ids）
+  │    ├─ ToolCall INSERT（tool_name="hybrid_search", vector/keyword/fused counts, chunk_ids）
+  │    └─ 選用 ToolCall INSERT（tool_name="rerank", status, returned）
   │
   └─ 回傳 ChatResponse  { answer, citations[] }
        citations 透過 chunk_id == document_chunks.id 對回 PostgreSQL

@@ -26,8 +26,8 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 
 | 能力 | 說明 |
 |---|---|
-| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、透過 PostgreSQL + pgvector 檢索 |
-| RAG 問答 | 提出維運問題 → 語意搜尋 → LLM 附引用來源回答 |
+| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、建立 PostgreSQL full-text + pgvector 索引 |
+| RAG 問答 | 提出維運問題 → hybrid search → 選用 rerank → LLM 附引用來源回答 |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
 | UI | React 引導式流程，涵蓋上傳、問答與 Agent 執行紀錄檢視 |
 
@@ -44,7 +44,7 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 
 四個步驟，除 `.env` 外不需任何手動設定：
 
-預設面試／展示路線是地端優先：Ollama 負責 LLM，mock 384 維 embedding 負責 pgvector 搜尋。
+預設面試／展示路線是地端優先：Ollama 負責 LLM，mock 1024 維 embedding 負責 pgvector 搜尋。
 
 ```bash
 # 1. 複製 env 範本（預設 Ollama LLM + mock embedding）
@@ -120,9 +120,9 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 
 | 模式 | 環境變數 | API key | 說明 |
 |---|---|---|---|
-| **ollama-local**（預設） | `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock` | 不需要 | 地端 Ollama 回答 + 確定性 384 維 embedding 寫入 pgvector |
+| **ollama-local**（預設） | `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock` | 不需要 | 地端 Ollama 回答 + 確定性 1024 維 embedding 寫入 pgvector |
 | **mock** | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 完全確定性的離線 provider；適合測試 |
-| **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | hosted LLM + OpenAI 相容 embedding；embedding 會要求 384 維 |
+| **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | hosted LLM + OpenAI 相容 embedding；embedding 會要求 1024 維 |
 
 > **面試展示採地端優先。** 主要路線使用 `ollama` 回答、`mock` embedding 做穩定的
 > 本地向量搜尋。需要 hosted model 品質時仍可切到 `openai`。切換只需修改 `.env`，
@@ -137,7 +137,7 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
-   EMBEDDING_DIMENSIONS=384
+   EMBEDDING_DIMENSIONS=1024
    OPENAI_API_KEY=sk-...你的真實金鑰...
    # 選填覆寫：
    # OPENAI_BASE_URL=https://api.openai.com/v1
@@ -154,7 +154,7 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
    並回報 `PASS` / `FAIL`。它**絕不會印出 API 金鑰**（只顯示遮罩後的摘要），
    失敗時以非 0 結束碼結束，可用於 CI；金鑰缺漏或無效時會回傳清楚的錯誤。
 
-> `EMBEDDING_DIMENSIONS=384` 很重要，因為 pgvector 欄位是 `vector(384)`。
+> `EMBEDDING_DIMENSIONS=1024` 很重要，因為 pgvector 欄位是 `vector(1024)`。
 > 切回地端展示模式則是：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`。
 
 ### 主機名稱：Docker vs 本機
@@ -173,7 +173,7 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 
 | Provider | 環境變數 | 行為 |
 |---|---|---|
-| `MockEmbeddingProvider` | `EMBEDDING_PROVIDER=mock` | 回傳 384 維單位向量（MD5 seeded，不打網路） |
+| `MockEmbeddingProvider` | `EMBEDDING_PROVIDER=mock` | 回傳 1024 維單位向量（MD5 seeded，不打網路） |
 | `MockLLMProvider` | `LLM_PROVIDER=mock` | 從 retrieved context 擷取片段，回傳帶 `[mock]` 前綴的答案 |
 
 ```bash
@@ -389,7 +389,7 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
 ## 搜尋文件
 
 ```bash
-# 對專案內已嵌入的 chunk 做語意搜尋
+# 對專案內已索引的 chunk 做 hybrid search
 curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20restart%20the%20service&top_k=5"
 
 # 預期回應
@@ -404,8 +404,9 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 #       "metadata": { "project_id": "...", "document_id": "...",
 #                     "chunk_id": "9b2c...", "filename": "network_sop.pdf",
 #                     "chunk_index": 12 },
-#       "distance": 0.18,
-#       "score": 0.82
+#       "fusion_score": 0.0325,
+#       "sources": ["vector", "keyword"],
+#       "scores": { "vector": 0.82, "keyword": 0.41 }
 #     }
 #   ]
 # }

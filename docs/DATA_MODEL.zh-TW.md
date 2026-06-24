@@ -71,11 +71,13 @@ PDF 切分後的文字區塊（與 PostgreSQL + pgvector 對應）。
 | document_id | UUID FK → documents | CASCADE |
 | chunk_index | INTEGER | 0-based 順序 |
 | content | TEXT | 原始區塊文字 |
+| embedding | vector(1024) | pgvector 語意召回用 dense embedding |
+| search_vector | TSVECTOR | generated English full-text index source |
 | metadata | JSONB | 頁碼、章節等 |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**索引：** `document_id`
+**索引：** `document_id`、`embedding` HNSW、`search_vector` GIN
 
 ---
 

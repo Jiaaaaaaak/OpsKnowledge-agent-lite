@@ -10,7 +10,7 @@ from app.models.project import Project
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 from app.services.llm_service import build_rag_prompt, format_citations, get_llm_provider
 from app.services.reranker_service import get_reranker_provider
-from app.services.vector_store import get_vector_store
+from app.services.retrieval import get_retrieval_service
 
 
 def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatResponse:
@@ -20,12 +20,12 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
 
     total_start = time.monotonic()
 
-    # 第一階段：向量召回。啟用 reranker 時多召回 candidate_k 筆供精排。
+    # 第一階段：hybrid 召回。啟用 reranker 時多召回 candidate_k 筆供精排。
     candidate_k = settings.rerank_candidate_k if settings.reranker_enabled else body.top_k
     retrieval_start = time.monotonic()
     try:
-        store = get_vector_store(db_session=db)
-        hits = store.search(str(project_id), body.question, candidate_k)
+        retrieval = get_retrieval_service(db_session=db)
+        hits, retrieval_breakdown = retrieval.search(str(project_id), body.question, top_k=candidate_k)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
@@ -80,9 +80,13 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
     db.add(
         ToolCall(
             agent_run_id=agent_run_id,
-            tool_name="vector_search",
+            tool_name="hybrid_search",
             input_json={"query": body.question, "top_k": candidate_k, "project_id": str(project_id)},
-            output_json={"hit_count": len(hits), "chunk_ids": [h["chunk_id"] for h in hits]},
+            output_json={
+                **retrieval_breakdown,
+                "hit_count": len(hits),
+                "chunk_ids": [h["chunk_id"] for h in hits],
+            },
             latency_ms=retrieval_ms,
         )
     )

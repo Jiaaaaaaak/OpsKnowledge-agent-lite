@@ -1,5 +1,5 @@
-from sqlalchemy import Column, ForeignKey, Index, Integer, Text, VARCHAR
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Column, Computed, ForeignKey, Index, Integer, Text, VARCHAR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import UserDefinedType
 
@@ -45,12 +45,18 @@ class DocumentChunk(PKMixin, TimestampMixin, Base):
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+        Index("idx_document_chunks_search_vector_gin", "search_vector", postgresql_using="gin"),
     )
 
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(VectorType(settings.embedding_dimensions), nullable=True)
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', coalesce(content, ''))", persisted=True),
+        nullable=False,
+    )
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
 
     document = relationship("Document", back_populates="chunks")

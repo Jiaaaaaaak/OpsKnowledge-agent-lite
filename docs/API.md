@@ -112,7 +112,7 @@ Upload a PDF for RAG ingestion.
 List all uploaded documents.
 
 ### `POST /documents/query`
-Semantic search over documents.
+Hybrid search over documents.
 
 ---
 
@@ -171,7 +171,9 @@ Upload a PDF technical manual or SOP. Text is automatically extracted, chunked, 
 
 ### `GET /projects/{project_id}/search`
 
-Semantic similarity search over a project's embedded document chunks.
+Hybrid search over a project's indexed document chunks. The backend combines
+pgvector dense retrieval with PostgreSQL full-text retrieval, then merges ranks
+with reciprocal-rank fusion.
 
 **Path Parameter**
 
@@ -208,8 +210,12 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
         "filename": "network_sop.pdf",
         "chunk_index": 12
       },
-      "distance": 0.18,
-      "score": 0.82
+      "fusion_score": 0.0325,
+      "sources": ["vector", "keyword"],
+      "scores": {
+        "vector": 0.82,
+        "keyword": 0.41
+      }
     }
   ]
 }
@@ -219,9 +225,10 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 |---|---|
 | chunk_id | UUID of the chunk — equals `document_chunks.id` in PostgreSQL |
 | content | The chunk text stored alongside the vector |
-| metadata | PostgreSQL + pgvector metadata (see embedding section above) |
-| distance | Cosine distance from the query (lower = closer) |
-| score | `1 - distance` convenience similarity score |
+| metadata | Chunk metadata with project, document, filename, and chunk index |
+| fusion_score | Reciprocal-rank fusion score used for final ordering |
+| sources | Retrieval branches that found this chunk (`vector`, `keyword`) |
+| scores | Per-branch raw score, such as vector similarity or full-text rank |
 
 **Mapping back to PostgreSQL**: use `chunk_id` (or `metadata.document_id`) to look up the full row:
 ```sql
@@ -365,7 +372,7 @@ The system prompt instructs the model to:
 
 **Observability** — every request writes:
 - One `agent_runs` row (`task_type="rag_chat"`, `model_name`, `latency_ms`, `status`, `input_json`, `output_json`)
-- One `tool_calls` row for the retrieval step (`tool_name="vector_search"`, `latency_ms`, `hit_count`)
+- One `tool_calls` row for the retrieval step (`tool_name="hybrid_search"`, `latency_ms`, vector/keyword/fused counts, `hit_count`)
 
 **Errors**
 - `404` — `{"detail": "Project not found"}`

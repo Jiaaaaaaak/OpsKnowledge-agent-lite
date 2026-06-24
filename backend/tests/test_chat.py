@@ -204,13 +204,25 @@ _SAMPLE_HIT = {
 }
 
 
+def _retrieval_result(hits: list[dict]) -> tuple[list[dict], dict]:
+    return (
+        hits,
+        {
+            "mode": "hybrid",
+            "vector_hit_count": len(hits),
+            "keyword_hit_count": 0,
+            "fused_hit_count": len(hits),
+        },
+    )
+
+
 def test_chat_returns_answer_and_citations(client: TestClient) -> None:
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+    with patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_retrieval.return_value.search.return_value = _retrieval_result([_SAMPLE_HIT])
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
             {"prompt_tokens": 120, "completion_tokens": 20},
@@ -245,9 +257,9 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
 
-    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+    with patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_retrieval.return_value.search.return_value = _retrieval_result([_SAMPLE_HIT])
         mock_llm_cls.return_value.complete.return_value = (
             "Run docker inspect to check volume mounts.",
             {"prompt_tokens": 120, "completion_tokens": 20},
@@ -269,7 +281,7 @@ def test_chat_writes_agent_run_and_tool_call() -> None:
     assert agent_run.status == "success"
     assert agent_run.output_json["citation_count"] == 1
     assert tool_call.agent_run_id == agent_run.id
-    assert tool_call.tool_name == "vector_search"
+    assert tool_call.tool_name == "hybrid_search"
     assert tool_call.output_json["chunk_ids"] == ["c1"]
     db.commit.assert_called_once()
 
@@ -296,10 +308,10 @@ def test_chat_two_stage_reranks_and_records_rerank_tool_call() -> None:
 
     with patch.object(settings, "reranker_enabled", True), \
          patch.object(settings, "rerank_candidate_k", 3), \
-         patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_reranker_provider") as mock_rr, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = candidates
+        mock_retrieval.return_value.search.return_value = _retrieval_result(candidates)
         # reranker 把第 3 筆（index 2）排到最前
         mock_rr.return_value.rerank.return_value = [(2, 0.9), (0, 0.5), (1, 0.1)]
         mock_llm_cls.return_value.complete.return_value = ("ans", {})
@@ -307,11 +319,11 @@ def test_chat_two_stage_reranks_and_records_rerank_tool_call() -> None:
         response = run_rag_chat(project_id, ChatRequest(question="q", top_k=2), db)
 
     # 第一階段以 candidate_k=3 召回；reranker 收到全部 3 筆候選內容
-    assert mock_vs.return_value.search.call_args.args[2] == 3
+    assert mock_retrieval.return_value.search.call_args.kwargs["top_k"] == 3
     assert mock_rr.return_value.rerank.call_args.args[1] == ["alpha", "beta", "gamma"]
 
     tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
-    assert [t.tool_name for t in tool_calls] == ["vector_search", "rerank"]
+    assert [t.tool_name for t in tool_calls] == ["hybrid_search", "rerank"]
     rerank_tc = tool_calls[1]
     assert rerank_tc.output_json["status"] == "success"
     assert rerank_tc.output_json["returned"] == 2  # 截到 top_k=2
@@ -332,10 +344,10 @@ def test_chat_rerank_fallback_keeps_vector_order_on_error() -> None:
 
     with patch.object(settings, "reranker_enabled", True), \
          patch.object(settings, "rerank_candidate_k", 3), \
-         patch("app.services.chat_service.get_vector_store") as mock_vs, \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_reranker_provider") as mock_rr, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = candidates
+        mock_retrieval.return_value.search.return_value = _retrieval_result(candidates)
         mock_rr.return_value.rerank.side_effect = RuntimeError("reranker down")
         mock_llm_cls.return_value.complete.return_value = ("ans", {})
 
@@ -350,6 +362,7 @@ def test_chat_rerank_fallback_keeps_vector_order_on_error() -> None:
 
 
 def test_chat_disabled_records_no_rerank_tool_call() -> None:
+    from app.core.config import settings
     from app.models.agent import ToolCall
     from app.services.chat_service import run_rag_chat
 
@@ -357,14 +370,48 @@ def test_chat_disabled_records_no_rerank_tool_call() -> None:
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
 
-    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+    with patch.object(settings, "reranker_enabled", False), \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_retrieval.return_value.search.return_value = _retrieval_result([_SAMPLE_HIT])
         mock_llm_cls.return_value.complete.return_value = ("ans", {})
         run_rag_chat(project_id, ChatRequest(question="q", top_k=5), db)
 
     tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
-    assert [t.tool_name for t in tool_calls] == ["vector_search"]
+    assert [t.tool_name for t in tool_calls] == ["hybrid_search"]
+
+
+def test_chat_uses_hybrid_retrieval_and_records_search_breakdown() -> None:
+    from app.core.config import settings
+    from app.models.agent import ToolCall
+    from app.services.chat_service import run_rag_chat
+
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = _FakeProject(project_id)
+
+    with patch.object(settings, "reranker_enabled", False), \
+         patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
+        mock_retrieval.return_value.search.return_value = (
+            [_SAMPLE_HIT],
+            {
+                "vector_hit_count": 2,
+                "keyword_hit_count": 1,
+                "fused_hit_count": 1,
+                "mode": "hybrid",
+            },
+        )
+        mock_llm_cls.return_value.complete.return_value = ("ans", {})
+
+        run_rag_chat(project_id, ChatRequest(question="q", top_k=5), db)
+
+    mock_retrieval.return_value.search.assert_called_once_with(str(project_id), "q", top_k=5)
+    tool_calls = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ToolCall)]
+    assert [t.tool_name for t in tool_calls] == ["hybrid_search"]
+    assert tool_calls[0].output_json["vector_hit_count"] == 2
+    assert tool_calls[0].output_json["keyword_hit_count"] == 1
+    assert tool_calls[0].output_json["chunk_ids"] == ["c1"]
 
 
 def test_chat_route_delegates_to_service(client: TestClient) -> None:
@@ -404,9 +451,9 @@ def test_chat_no_hits_returns_answer_without_citations(client: TestClient) -> No
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+    with patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = []
+        mock_retrieval.return_value.search.return_value = _retrieval_result([])
         mock_llm_cls.return_value.complete.return_value = (
             "The document does not contain enough information to answer this question.",
             {},
@@ -427,9 +474,9 @@ def test_chat_llm_error_returns_500(client: TestClient) -> None:
     project_id = uuid.uuid4()
     app.dependency_overrides[get_db] = _db_override(project=_FakeProject(project_id))
 
-    with patch("app.services.chat_service.get_vector_store") as mock_vs, \
+    with patch("app.services.chat_service.get_retrieval_service") as mock_retrieval, \
          patch("app.services.chat_service.get_llm_provider") as mock_llm_cls:
-        mock_vs.return_value.search.return_value = [_SAMPLE_HIT]
+        mock_retrieval.return_value.search.return_value = _retrieval_result([_SAMPLE_HIT])
         mock_llm_cls.return_value.complete.side_effect = RuntimeError("API quota exceeded")
 
         response = client.post(

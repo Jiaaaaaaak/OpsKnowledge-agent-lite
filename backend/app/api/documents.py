@@ -1,13 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.project import Project
 from app.services.document_service import DocumentIngestionResult, DocumentIngestionService
+from app.services.retrieval import get_retrieval_service
 from app.services.vector_store import get_vector_store
 
 router = APIRouter(prefix="/projects", tags=["Documents"])
@@ -100,6 +101,9 @@ class DocumentSearchHit(BaseModel):
     metadata: dict
     distance: float | None = None
     score: float | None = None
+    fusion_score: float | None = None
+    sources: list[str] = Field(default_factory=list)
+    scores: dict[str, float | None] = Field(default_factory=dict)
 
 
 class DocumentSearchResponse(BaseModel):
@@ -126,8 +130,8 @@ def search_documents(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     try:
-        store = get_vector_store(db_session=db)
-        hits = store.search(str(project_id), query, top_k)
+        retrieval = get_retrieval_service(db_session=db)
+        hits, _breakdown = retrieval.search(str(project_id), query, top_k=top_k)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 

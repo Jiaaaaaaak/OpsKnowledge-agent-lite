@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.api.documents import list_documents
+from app.api.documents import DocumentSearchHit, list_documents
 
 _NOW = datetime.now(timezone.utc)
 
@@ -73,3 +73,19 @@ def test_list_project_documents_returns_404_when_project_missing() -> None:
 
     assert exc.value.status_code == 404
     assert exc.value.detail == "Project not found"
+
+
+def test_document_search_hit_keeps_hybrid_scores() -> None:
+    hit = DocumentSearchHit(
+        chunk_id="c1",
+        content="Restart PostgreSQL with systemctl.",
+        metadata={"filename": "postgres.pdf"},
+        fusion_score=0.0325,
+        sources=["vector", "keyword"],
+        scores={"vector": 0.82, "keyword": 0.41},
+    )
+
+    dumped = hit.model_dump()
+    assert dumped["fusion_score"] == 0.0325
+    assert dumped["sources"] == ["vector", "keyword"]
+    assert dumped["scores"] == {"vector": 0.82, "keyword": 0.41}

@@ -22,7 +22,7 @@ IT／維運團隊需管理大量技術文件（手冊、SOP），但面臨以下
 ### 包含項目
 
 - [x] 上傳 PDF 文件 → 解析 → 分塊 → 嵌入 → 存入 PostgreSQL + pgvector
-- [x] 對文件進行語意搜尋 / 附引用來源的 RAG 問答
+- [x] 對文件進行 hybrid search / 附引用來源的 RAG 問答
 - [x] 將每次 AI 呼叫記錄至 PostgreSQL（模型、tokens、延遲、結果）
 - [x] React 引導式流程 UI：Upload → 確認 → Chat → 檢視
 - [x] Docker Compose 部署（PostgreSQL、PostgreSQL + pgvector、backend、frontend）
@@ -54,8 +54,8 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
 | 前端測試 | Vitest、Testing Library、jsdom |
 | 後端 | FastAPI、Uvicorn、SQLAlchemy、Pydantic / pydantic-settings |
 | 後端測試 | pytest |
-| 資料庫 | PostgreSQL 16 + pgvector（`vector(384)`） |
-| LLM／嵌入 | 可插拔 provider：`mock` / `ollama` / `openai`；地端預設＝Ollama（`qwen2.5:7b-instruct`）作為 LLM ＋ mock 嵌入（維度 384） |
+| 資料庫 | PostgreSQL 16 + pgvector（`vector(1024)`） |
+| LLM／嵌入 | 可插拔 provider：`mock` / `ollama` / `openai`；地端預設＝Ollama（`qwen2.5:7b-instruct`）作為 LLM ＋ mock 嵌入（維度 1024） |
 | 封裝／部署 | Docker Compose（postgres、ollama、backend、frontend） |
 | 可觀測性 | `agent_runs` ＋ `tool_calls` 稽核紀錄 |
 
@@ -83,7 +83,7 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
                          ▼                                         ▼
       ┌─────────────────────────────────────┐      ┌─────────────────────────────────┐
       │ PostgreSQL 16 + pgvector  (:5432)   │      │ AI Provider（可插拔）           │
-      │ vector(384) 語意檢索                │      │ 嵌入 + 生成                     │
+      │ vector(1024) 語意檢索                │      │ 嵌入 + 生成                     │
       │ 稽核：agent_runs / tool_calls       │      │ mock / Ollama(:11434) / OpenAI  │
       └─────────────────────────────────────┘      └─────────────────────────────────┘
 ```

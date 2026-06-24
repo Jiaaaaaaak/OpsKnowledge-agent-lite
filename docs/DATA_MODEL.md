@@ -71,11 +71,13 @@ Text chunks produced by splitting a PDF (mapped to PostgreSQL + pgvector).
 | document_id | UUID FK → documents | CASCADE |
 | chunk_index | INTEGER | 0-based order |
 | content | TEXT | Raw chunk text |
+| embedding | vector(1024) | Dense embedding for pgvector retrieval |
+| search_vector | TSVECTOR | Generated English full-text index source |
 | metadata | JSONB | Page number, section, etc. |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
-**Indexes:** `document_id`
+**Indexes:** `document_id`, HNSW on `embedding`, GIN on `search_vector`
 
 ---
 

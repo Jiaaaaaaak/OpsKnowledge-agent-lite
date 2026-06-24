@@ -47,6 +47,8 @@ graph TD
 | `services/document_service.py` | PDF parsing, chunking, then embedding + PostgreSQL + pgvector storage (via injected `VectorStoreService`) |
 | `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
 | `services/vector_store.py` | `VectorStoreService` wrapping PostgreSQL + pgvector: upsert chunk vectors, project-scoped similarity search |
+| `services/retrieval/` | Modular hybrid retrieval: pgvector dense recall, PostgreSQL full-text recall, reciprocal-rank fusion |
+| `services/reranker_service.py` | Optional second-stage cross-encoder reranker for fused retrieval candidates |
 | `services/llm_service.py` | `LLMProvider` interface + `OpenAICompatibleLLMProvider`; `build_rag_prompt` and `format_citations` pure functions |
 | `services/chat_service.py` | RAG chat: retrieve → prompt → LLM → citations |
 | `services/log_service.py` | Records every AI run to `agent_runs` / `tool_calls` tables |
@@ -84,8 +86,11 @@ POST /projects/{id}/upload/documents
        { document_id, filename, page_count, chunk_count, source_path }
 
 GET /projects/{id}/search?query=...&top_k=5
-  └─ embed query → PostgreSQL + pgvector query (where project_id == {id}) → top-k chunks
-       each hit: { chunk_id, content, metadata, distance, score }
+  └─ HybridRetrievalService.search(project_id, query, top_k)
+       ├─ VectorRetriever → embed query → pgvector cosine search
+       ├─ KeywordRetriever → PostgreSQL websearch_to_tsquery full-text search
+       └─ ReciprocalRankFusion → de-duplicate by chunk_id and return top-k chunks
+       each hit: { chunk_id, content, metadata, fusion_score, sources, scores }
        chunk_id maps 1:1 back to the document_chunks row in PostgreSQL
 ```
 
@@ -96,9 +101,12 @@ POST /projects/{id}/chat  { question, top_k }
   │
   ├─ Project 404 guard
   │
-  ├─ VectorStoreService.search(project_id, question, top_k)
-  │    └─ embed question → PostgreSQL + pgvector query (where project_id == {id}) → top-k hits
-  │         each hit: { chunk_id, content, metadata, distance, score }
+  ├─ HybridRetrievalService.search(project_id, question, candidate_k)
+  │    └─ vector recall + full-text recall + reciprocal-rank fusion
+  │         each hit: { chunk_id, content, metadata, fusion_score, sources, scores }
+  │
+  ├─ Optional reranker
+  │    └─ if RERANKER_ENABLED=true, rerank fused candidates and keep top_k
   │
   ├─ build_rag_prompt(hits)
   │    └─ numbered context blocks + hallucination-guard rules
@@ -110,7 +118,8 @@ POST /projects/{id}/chat  { question, top_k }
   │    └─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 chars) }
   │
   ├─ AgentRun INSERT  (task_type="rag_chat", status, latency_ms, input_json, output_json)
-  │    └─ ToolCall INSERT  (tool_name="vector_search", latency_ms, hit_count, chunk_ids)
+  │    ├─ ToolCall INSERT  (tool_name="hybrid_search", vector/keyword/fused counts, chunk_ids)
+  │    └─ Optional ToolCall INSERT  (tool_name="rerank", status, returned)
   │
   └─ Return ChatResponse  { answer, citations[] }
        citations map back to PostgreSQL via chunk_id == document_chunks.id

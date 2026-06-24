@@ -71,7 +71,7 @@
 |--------|------|------|
 | `api/health.py` | `GET /health` | 健康檢查 |
 | `api/projects.py` | `GET/POST /projects/` | 建立/列出專案 |
-| `api/documents.py` | `POST /projects/{id}/upload/documents`、`GET /projects/{id}/search` | 上傳 PDF、語意搜尋 |
+| `api/documents.py` | `POST /projects/{id}/upload/documents`、`GET /projects/{id}/search` | 上傳 PDF、hybrid search |
 | `api/uploads.py` | `POST /projects/{id}/upload/tickets` | 上傳工單（CSV/Excel/JSON）|
 | `api/chat.py` | `POST /projects/{id}/chat` | **RAG 問答** |
 | `api/analyze.py` | `POST /projects/{id}/analyze/incidents` | **事件分析 Agent** |
@@ -104,14 +104,14 @@ PostgreSQL 存**結構化、需要查詢/關聯的資料**。資料表定義在 
 
 ## 6. PostgreSQL + pgvector 負責存什麼？
 
-PostgreSQL + pgvector 是**向量資料庫**，只負責「語意搜尋」：
+PostgreSQL + pgvector 是**向量資料庫**，負責 hybrid search 中的 dense vector 分支：
 
 - 封裝在 `backend/app/services/vector_store.py`。
 - 存的內容（`vector_store.py:49-69` 的 `add_chunks`）：每個 chunk 的**向量（embedding）**、原文、以及 metadata（`project_id`、`document_id`、`chunk_id`、`filename`、`chunk_index`）。
-- 用途（`vector_store.py` 的 `search`）：把問題轉成向量，用 pgvector cosine distance 找出最相關的 top-k chunk，並透過 SQL 條件限制只搜尋該專案範圍。
+- 用途（`vector_store.py` 的 `search`）：把問題轉成向量，用 pgvector cosine distance 找出 dense candidates，交給 `services/retrieval/` 與 PostgreSQL full-text 結果做 RRF fusion。
 - 連線設定沿用 PostgreSQL 的 `POSTGRES_*`；pgvector 是 PostgreSQL extension，不是獨立服務或 collection。
 
-> 一句話：**PostgreSQL 回答「有哪些資料」，PostgreSQL + pgvector 回答「哪段文字跟這個問題最像」。**
+> 一句話：**PostgreSQL full-text 找精確詞彙線索，PostgreSQL + pgvector 找語意相近段落，`services/retrieval/` 負責合併排序。**
 
 ---
 
@@ -128,7 +128,7 @@ PostgreSQL + pgvector 是**向量資料庫**，只負責「語意搜尋」：
 
 ### (B) Mock Embedding — `backend/app/services/embedding_service.py`
 
-- `MockEmbeddingProvider`（`embedding_service.py:50-79`）：把每段文字做 **MD5 hash 當亂數種子**，生成固定的 384 維單位向量。同樣的文字永遠得到同樣的向量，所以搜尋結果可重現。
+- `MockEmbeddingProvider`（`embedding_service.py:50-79`）：把每段文字做 **MD5 hash 當亂數種子**，生成固定的 1024 維單位向量。同樣的文字永遠得到同樣的向量，所以搜尋結果可重現。
 
 > 初學者理解：mock 就是「假的 AI」——不花錢、不連網、結果固定，專門用來驗證整條流程（上傳→切塊→搜尋→回答→記錄）是否串得起來。
 
@@ -152,7 +152,7 @@ PostgreSQL + pgvector 是**向量資料庫**，只負責「語意搜尋」：
 
 - 想接的廠商**不是 OpenAI 相容、也不是 Ollama**（例如要自訂 Anthropic 原生格式）→ 在 `llm_service.py` 新增一個 `LLMProvider` 子類別，並在 `get_llm_provider()` 加分支。
 - 想換 embedding 廠商 → 在 `embedding_service.py` 同理新增子類別。
-- 換了 embedding 模型導致**向量維度改變**（目前 pgvector 欄位是 384）→ 同步調整 `EMBEDDING_DIMENSIONS`、`document_chunks.embedding vector(...)` 與既有資料重建策略。
+- 換了 embedding 模型導致**向量維度改變**（目前 pgvector 欄位是 1024）→ 同步調整 `EMBEDDING_DIMENSIONS`、`document_chunks.embedding vector(...)` 與既有資料重建策略。
 
 > 結論：正常情況**只改 `.env`**；`config.py` 已有對應欄位；程式入口檔 `chat.py`/`analyze.py` 透過 `get_llm_provider()` 取得 provider，完全不需更動。
 

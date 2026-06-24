@@ -53,9 +53,9 @@
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
 | `backend/app/main.py` | FastAPI 進入點 | 建立 app、掛 CORS、註冊 7 個 router | `uvicorn`（docker-compose 啟動指令） | 各 `api/*.py` 的 router、`core/config`、`core/logging` | ★★★ |
-| `backend/app/api/chat.py` | route | **RAG 問答** `POST /projects/{id}/chat` | `main.py`（經 HTTP） | `services/vector_store`、`services/llm_service`、`models/agent`、`models/project` | ★★★ |
+| `backend/app/api/chat.py` | route | **RAG 問答** `POST /projects/{id}/chat` | `main.py`（經 HTTP） | `services/retrieval`、`services/reranker_service`、`services/llm_service`、`models/agent`、`models/project` | ★★★ |
 | `backend/app/api/analyze.py` | route | **事件分析 Agent** `POST /projects/{id}/analyze/incidents`，依序跑 4 工具並寫結果 | `main.py`（經 HTTP） | `tools/incident_analysis`、`services/llm_service`、`models/analysis`、`models/record`、`models/agent` | ★★★ |
-| `backend/app/api/documents.py` | route | 上傳 PDF + 語意搜尋 | `main.py`（經 HTTP） | `services/document_service`、`services/vector_store` | ★★ |
+| `backend/app/api/documents.py` | route | 上傳 PDF + hybrid search | `main.py`（經 HTTP） | `services/document_service`、`services/retrieval`、`services/vector_store` | ★★ |
 | `backend/app/api/uploads.py` | route | 上傳工單（CSV/Excel/JSON） | `main.py`（經 HTTP） | `services/etl_service` | ★★ |
 | `backend/app/api/dashboard.py` | route | 儀表板聚合 + agent-runs/tool-calls 查詢（純 SQL，不呼叫 LLM） | `main.py`（經 HTTP） | `models/agent`、`models/analysis`、`models/record`、`schemas/agent` | ★★ |
 | `backend/app/api/projects.py` | route | 專案 CRUD（建立/列出/取得） | `main.py`（經 HTTP） | `models/project`、`schemas/project` | ★★ |
@@ -68,8 +68,9 @@
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
 | `backend/app/services/llm_service.py` | service | LLM provider 抽象（mock/openai/ollama）、`build_rag_prompt`、`format_citations` | `api/chat.py`、`api/analyze.py`、`tools/incident_analysis.py`、`utils/verify_providers.py` | `openai` SDK / `httpx`（ollama）、`core/config` | ★★★ |
-| `backend/app/services/vector_store.py` | service | 封裝 PostgreSQL + pgvector：寫入 chunk 向量、相似度搜尋（模組級單例） | `api/chat.py`、`api/documents.py` | `services/embedding_service`、`pgvector`、`core/config` | ★★★ |
-| `backend/app/services/embedding_service.py` | service | Embedding provider 抽象（mock=MD5→384維 / openai） | `services/vector_store`、`utils/verify_providers` | `openai` SDK、`core/config` | ★★ |
+| `backend/app/services/retrieval/` | service | 模組化 hybrid retrieval：pgvector 召回、PostgreSQL full-text 召回、RRF fusion | `api/chat.py`、`api/documents.py` | `services/vector_store`、`db/session` | ★★★ |
+| `backend/app/services/vector_store.py` | service | 封裝 PostgreSQL + pgvector：寫入 chunk 向量、dense vector search（由 retrieval 模組呼叫） | `services/retrieval/vector_retriever.py`、`services/document_service.py` | `services/embedding_service`、`pgvector`、`core/config` | ★★★ |
+| `backend/app/services/embedding_service.py` | service | Embedding provider 抽象（mock=MD5→1024維 / openai） | `services/vector_store`、`utils/verify_providers` | `openai` SDK、`core/config` | ★★ |
 | `backend/app/services/document_service.py` | service | PDF 解析、滑動視窗切 chunk、寫 PostgreSQL + 送 PostgreSQL + pgvector | `api/documents.py` | `pypdf`、`services/vector_store`（ChunkPayload/add_chunks）、`models/document` | ★★ |
 | `backend/app/services/etl_service.py` | service | 工單 ETL：欄位同義詞對應、日期解析、Pydantic 驗證、寫 raw+cleaned | `api/uploads.py` | `models/record`、`csv`/`json`/`openpyxl` | ★★ |
 | `backend/app/tools/incident_analysis.py` | agent tools | 4 個工具：classify/severity/insights/action_items，各自驗證輸出並寫 tool_calls | `api/analyze.py` | `services/llm_service`（LLMProvider）、`models/agent`（ToolCall）、`models/record` | ★★★ |
@@ -110,12 +111,13 @@
 
 | 檔案路徑 | 類型 | 主要用途 | 被誰呼叫 | 會呼叫誰 | 先看懂程度 |
 |---|---|---|---|---|---|
-| `backend/app/services/vector_store.py` | service | 唯一直接操作 PostgreSQL + pgvector 的檔（embedding 更新、cosine distance query） | `chat.py`、`documents.py` | `db/session`、`embedding_service` | ★★★ |
+| `backend/app/services/retrieval/` | service | hybrid search orchestration，整合 dense vector、keyword full-text 與 RRF fusion | `chat.py`、`documents.py` | `vector_store`、`db/session` | ★★★ |
+| `backend/app/services/vector_store.py` | service | 直接操作 PostgreSQL + pgvector（embedding 更新、cosine distance query） | `services/retrieval/vector_retriever.py`、`document_service.py` | `db/session`、`embedding_service` | ★★★ |
 | `backend/app/services/embedding_service.py` | service | 產生送進 pgvector 的向量（文字→embedding） | `vector_store` | `openai`/本地 hash、`config` | ★★ |
 | `backend/app/db/session.py` | DB | 初始化與檢查 `vector` extension | `health.py`、`scripts/create_tables.py` | SQLAlchemy、PostgreSQL | ★★ |
 | `docker-compose.yml`（postgres service） | 部署 | 啟動 `pgvector/pgvector:pg16` PostgreSQL 容器與 `postgres_data` volume | `docker compose` | — | ★ |
 
-> PostgreSQL + pgvector 沒有獨立的 Python 模組；所有互動都集中在 `vector_store.py`，這是看懂向量檢索的單一入口。
+> RAG 查詢入口現在是 `services/retrieval/`；`vector_store.py` 只負責 dense vector 分支與 embedding 寫入。
 
 ---
 

@@ -59,7 +59,7 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
 - Sidebar → **Agent 執行紀錄**
 - 上方表格列出所有 `agent_runs`（chat runs）。
 - 選最近一次 `rag_chat` run。
-- 展示 drill-down：status、latency、model；展開 `vector_search` tool call
+- 展示 drill-down：status、latency、model；展開 `hybrid_search` tool call
   → `input_json` / `output_json` / latency。
 
 > 收尾：「Black-box LLM agent 變成可事後 debug 的系統：挑一次 run、看確切的

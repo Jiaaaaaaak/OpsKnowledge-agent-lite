@@ -41,12 +41,34 @@ def ensure_vector_extension() -> None:
 
 def ensure_vector_schema() -> None:
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding vector(384)"))
+        conn.execute(
+            text(
+                f"ALTER TABLE document_chunks "
+                f"ADD COLUMN IF NOT EXISTS embedding vector({settings.embedding_dimensions})"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE document_chunks
+                ADD COLUMN IF NOT EXISTS search_vector tsvector
+                GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED
+                """
+            )
+        )
         conn.execute(
             text(
                 """
                 CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw
                 ON document_chunks USING hnsw (embedding vector_cosine_ops)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_document_chunks_search_vector_gin
+                ON document_chunks USING gin (search_vector)
                 """
             )
         )

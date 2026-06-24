@@ -112,7 +112,7 @@ Base URL：`http://localhost:8000`
 列出所有已上傳的文件。
 
 ### `POST /documents/query`
-對文件進行語意搜尋。
+對文件進行 hybrid search。
 
 ---
 
@@ -171,7 +171,8 @@ Base URL：`http://localhost:8000`
 
 ### `GET /projects/{project_id}/search`
 
-對專案內已嵌入的文件分塊做語意相似度搜尋。
+對專案內已索引的文件分塊做 hybrid search。後端會結合 pgvector 語意召回與
+PostgreSQL full-text 召回，再用 reciprocal-rank fusion 合併排序。
 
 **Path Parameter**
 
@@ -208,8 +209,12 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
         "filename": "network_sop.pdf",
         "chunk_index": 12
       },
-      "distance": 0.18,
-      "score": 0.82
+      "fusion_score": 0.0325,
+      "sources": ["vector", "keyword"],
+      "scores": {
+        "vector": 0.82,
+        "keyword": 0.41
+      }
     }
   ]
 }
@@ -219,9 +224,10 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 |---|---|
 | chunk_id | chunk 的 UUID — 等同 PostgreSQL 的 `document_chunks.id` |
 | content | 與向量一同儲存的 chunk 文字 |
-| metadata | PostgreSQL + pgvector metadata（見上方嵌入說明） |
-| distance | 與 query 的 cosine 距離（越小越接近） |
-| score | `1 - distance` 的相似度分數，方便排序顯示 |
+| metadata | chunk metadata，包含 project、document、filename 與 chunk index |
+| fusion_score | reciprocal-rank fusion 產生的最終排序分數 |
+| sources | 找到此 chunk 的召回分支（`vector`、`keyword`） |
+| scores | 各召回分支的原始分數，例如向量相似度或 full-text rank |
 
 **對回 PostgreSQL**：用 `chunk_id`（或 `metadata.document_id`）查回完整資料列：
 ```sql
@@ -364,7 +370,7 @@ System prompt 指示模型：
 
 **可觀測性** — 每次請求寫入：
 - 一筆 `agent_runs`（`task_type="rag_chat"`、`model_name`、`latency_ms`、`status`、`input_json`、`output_json`）
-- 一筆 `tool_calls`（`tool_name="vector_search"`、`latency_ms`、`hit_count`）
+- 一筆 `tool_calls`（`tool_name="hybrid_search"`、`latency_ms`、vector/keyword/fused counts、`hit_count`）
 
 **錯誤**
 - `404` — `{"detail": "Project not found"}`

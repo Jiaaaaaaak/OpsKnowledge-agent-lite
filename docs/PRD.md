@@ -22,7 +22,7 @@ IT/Operations teams manage large volumes of technical documentation (manuals, SO
 ### Included
 
 - [x] Upload PDF documents → parse → chunk → embed → store in PostgreSQL + pgvector
-- [x] Semantic search / RAG Q&A over documents with citations
+- [x] Hybrid search / RAG Q&A over documents with citations
 - [x] Logging of every AI call to PostgreSQL (model, tokens, latency, result)
 - [x] React guided workflow UI: Upload → Confirm → Chat → Inspect
 - [x] Docker Compose deployment (PostgreSQL, PostgreSQL + pgvector, backend, frontend)
@@ -54,8 +54,8 @@ OpsKnowledge Agent Lite is a containerized full-stack application. A React singl
 | Frontend tests | Vitest, Testing Library, jsdom |
 | Backend | FastAPI, Uvicorn, SQLAlchemy, Pydantic / pydantic-settings |
 | Backend tests | pytest |
-| Database | PostgreSQL 16 + pgvector (`vector(384)`) |
-| LLM / Embeddings | Pluggable provider: `mock` / `ollama` / `openai`; on-prem default = Ollama (`qwen2.5:7b-instruct`) for LLM + mock embeddings (dim 384) |
+| Database | PostgreSQL 16 + pgvector (`vector(1024)`) |
+| LLM / Embeddings | Pluggable provider: `mock` / `ollama` / `openai`; on-prem default = Ollama (`qwen2.5:7b-instruct`) for LLM + mock embeddings (dim 1024) |
 | Packaging / Deploy | Docker Compose (postgres, ollama, backend, frontend) |
 | Observability | `agent_runs` + `tool_calls` audit logging |
 
@@ -83,7 +83,7 @@ OpsKnowledge Agent Lite is a containerized full-stack application. A React singl
                          ▼                                        ▼
       ┌────────────────────────────────────┐      ┌─────────────────────────────────┐
       │ PostgreSQL 16 + pgvector  (:5432)  │      │ AI Provider (pluggable)         │
-      │ vector(384) search                 │      │ embeddings + completion         │
+      │ vector(1024) search                 │      │ embeddings + completion         │
       │ audit: agent_runs / tool_calls     │      │ mock / Ollama(:11434) / OpenAI  │
       └────────────────────────────────────┘      └─────────────────────────────────┘
 ```

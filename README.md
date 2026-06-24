@@ -28,8 +28,8 @@ review internationally.
 
 | Capability | Description |
 |---|---|
-| Document RAG | Upload PDF manuals/SOPs → chunk, embed, retrieve via PostgreSQL + pgvector |
-| RAG Chat | Ask operational questions → semantic search → LLM answer with citations |
+| Document RAG | Upload PDF manuals/SOPs → chunk, embed, index in PostgreSQL full-text + pgvector |
+| RAG Chat | Ask operational questions → hybrid search → optional rerank → LLM answer with citations |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
 | UI | React guided workflow for uploads, Q&A, and agent run inspection |
 
@@ -45,7 +45,7 @@ review internationally.
 ## Quick Start (Docker Compose)
 
 The default interview/demo path is local-first: Ollama for the LLM and mock
-384-dim embeddings for pgvector search.
+1024-dim embeddings for pgvector search.
 
 ```bash
 # 1. Copy the env template (defaults to Ollama LLM + mock embeddings)
@@ -122,9 +122,9 @@ make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 
 | Mode | env vars | API key | Notes |
 |---|---|---|---|
-| **ollama-local** (default) | `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock` | None | Local Ollama answers + deterministic 384-dim embeddings for pgvector |
+| **ollama-local** (default) | `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock` | None | Local Ollama answers + deterministic 1024-dim embeddings for pgvector |
 | **mock** | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Fully deterministic offline providers; useful for tests |
-| **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Hosted LLM + OpenAI-compatible embeddings; embeddings are requested at 384 dimensions |
+| **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Hosted LLM + OpenAI-compatible embeddings; embeddings are requested at 1024 dimensions |
 
 > **Local-first for interviews.** The main demo path uses `ollama` for answers and
 > `mock` embeddings for stable local vector search. The `openai` provider remains
@@ -143,7 +143,7 @@ real OpenAI-compatible API:
    ```bash
    LLM_PROVIDER=openai
    EMBEDDING_PROVIDER=openai
-   EMBEDDING_DIMENSIONS=384
+   EMBEDDING_DIMENSIONS=1024
    OPENAI_API_KEY=sk-...your-real-key...
    # optional overrides:
    # OPENAI_BASE_URL=https://api.openai.com/v1
@@ -161,8 +161,8 @@ real OpenAI-compatible API:
    (only a masked summary), and exits non-zero on failure so it can be used in CI.
    If the key is missing or invalid it returns a clear error.
 
-> `EMBEDDING_DIMENSIONS=384` is important because the pgvector column is
-> `vector(384)`. Switching back to local demo mode is:
+> `EMBEDDING_DIMENSIONS=1024` is important because the pgvector column is
+> `vector(1024)`. Switching back to local demo mode is:
 > `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock`.
 
 ### Hostnames: Docker vs local
@@ -183,7 +183,7 @@ both providers to mock:
 
 | Provider | env var | Behaviour |
 |---|---|---|
-| `MockEmbeddingProvider` | `EMBEDDING_PROVIDER=mock` | Returns 384-dim unit vectors (MD5-seeded, no network call) |
+| `MockEmbeddingProvider` | `EMBEDDING_PROVIDER=mock` | Returns 1024-dim unit vectors (MD5-seeded, no network call) |
 | `MockLLMProvider` | `LLM_PROVIDER=mock` | Returns a `[mock]` prefixed answer extracted from retrieved context |
 
 ```bash
@@ -399,7 +399,7 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
 ## Search Documents
 
 ```bash
-# Semantic search over a project's embedded chunks
+# Hybrid search over a project's indexed chunks
 curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20restart%20the%20service&top_k=5"
 
 # Expected response
@@ -414,8 +414,9 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 #       "metadata": { "project_id": "...", "document_id": "...",
 #                     "chunk_id": "9b2c...", "filename": "network_sop.pdf",
 #                     "chunk_index": 12 },
-#       "distance": 0.18,
-#       "score": 0.82
+#       "fusion_score": 0.0325,
+#       "sources": ["vector", "keyword"],
+#       "scores": { "vector": 0.82, "keyword": 0.41 }
 #     }
 #   ]
 # }

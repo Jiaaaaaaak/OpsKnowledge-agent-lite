@@ -60,7 +60,7 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 - Sidebar → **Agent Runs**
 - Top table lists all `agent_runs` (chat runs).
 - Select the most recent `rag_chat` run.
-- Show drill-down: status, latency, model, then expand the `vector_search` tool call
+- Show drill-down: status, latency, model, then expand the `hybrid_search` tool call
   → input_json / output_json / latency.
 
 > Closing line: "Black-box LLM agent turned into a system you can debug after the
