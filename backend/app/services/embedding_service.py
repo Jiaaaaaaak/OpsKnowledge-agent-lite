@@ -110,7 +110,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
 
     每段文字透過 MD5 hash 產生固定的隨機種子，再生成 L2 單位向量。
     相同文字永遠回傳相同向量；可安全用於 CI / 本地開發。
-    向量維度固定為 mock_embedding_dim（預設 384）。
+    向量維度固定為 mock_embedding_dim（預設 1024）。
     """
 
     def __init__(self, dim: int | None = None) -> None:

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 from app.services.retrieval.fusion import ReciprocalRankFusion
 from app.services.retrieval.keyword_retriever import KeywordRetriever
+from app.services.retrieval.service import HybridRetrievalService
 
 
 def _hit(chunk_id: str, *, source: str, score: float) -> dict:
@@ -82,3 +83,45 @@ class TestKeywordRetriever:
         assert hits[0]["source"] == "keyword"
         assert hits[0]["score"] == 0.42
         assert hits[0]["metadata"]["filename"] == "postgres.pdf"
+
+
+class TestHybridRetrievalService:
+    def test_search_fuses_both_arms_and_reports_breakdown(self):
+        vector = MagicMock()
+        vector.search.return_value = [
+            _hit("shared", source="vector", score=0.8),
+            _hit("vector-only", source="vector", score=0.7),
+        ]
+        keyword = MagicMock()
+        keyword.search.return_value = [_hit("shared", source="keyword", score=0.6)]
+
+        service = HybridRetrievalService(vector_retriever=vector, keyword_retriever=keyword)
+        fused, breakdown = service.search("proj-1", "restart postgres", top_k=5)
+
+        vector.search.assert_called_once_with("proj-1", "restart postgres", 5)
+        keyword.search.assert_called_once_with("proj-1", "restart postgres", 5)
+        # 兩條都命中的 chunk 應被融合到最前。
+        assert fused[0]["chunk_id"] == "shared"
+        assert fused[0]["sources"] == ["vector", "keyword"]
+        assert breakdown == {
+            "mode": "hybrid",
+            "vector_hit_count": 2,
+            "keyword_hit_count": 1,
+            "keyword_status": "ok",
+            "fused_hit_count": 2,
+        }
+
+    def test_keyword_failure_degrades_to_vector_only_without_raising(self):
+        vector = MagicMock()
+        vector.search.return_value = [_hit("vector-only", source="vector", score=0.9)]
+        keyword = MagicMock()
+        # keyword 全文檢索 SQL 炸掉時，整體檢索不應失敗。
+        keyword.search.side_effect = RuntimeError("relation document_chunks has no search_vector")
+
+        service = HybridRetrievalService(vector_retriever=vector, keyword_retriever=keyword)
+        fused, breakdown = service.search("proj-1", "重啟 postgres", top_k=5)
+
+        assert [h["chunk_id"] for h in fused] == ["vector-only"]
+        assert breakdown["keyword_status"] == "fallback"
+        assert breakdown["keyword_hit_count"] == 0
+        assert breakdown["fused_hit_count"] == 1
