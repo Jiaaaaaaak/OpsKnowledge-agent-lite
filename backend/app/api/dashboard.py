@@ -113,14 +113,6 @@ class AnalysisRunResultResponse(BaseModel):
     action_items: list[ActionItemBrief]
 
 
-class EventWorkflowStatus(BaseModel):
-    cleaned_ticket_count: int
-    analyzed_ticket_count: int
-    unanalyzed_ticket_count: int
-    latest_run_id: uuid.UUID | None
-    latest_run_status: str | None
-
-
 class KnowledgeWorkflowStatus(BaseModel):
     document_count: int
     total_pages: int
@@ -130,7 +122,6 @@ class KnowledgeWorkflowStatus(BaseModel):
 
 class WorkflowStatusResponse(BaseModel):
     project_id: uuid.UUID
-    event: EventWorkflowStatus
     knowledge: KnowledgeWorkflowStatus
 
 
@@ -348,24 +339,6 @@ def get_workflow_status(
 ) -> WorkflowStatusResponse:
     _project_or_404(db, project_id)
 
-    cleaned_count = (
-        db.query(func.count(CleanedRecord.id))
-        .filter(CleanedRecord.project_id == project_id)
-        .scalar()
-        or 0
-    )
-    analyzed_count = (
-        db.query(func.count(IncidentAnalysis.id))
-        .filter(IncidentAnalysis.project_id == project_id)
-        .scalar()
-        or 0
-    )
-    latest_run = (
-        db.query(AgentRun)
-        .filter(AgentRun.project_id == project_id, AgentRun.task_type == "analyze_incidents")
-        .order_by(AgentRun.created_at.desc())
-        .first()
-    )
     document_count = (
         db.query(func.count(Document.id))
         .filter(Document.project_id == project_id)
@@ -388,13 +361,6 @@ def get_workflow_status(
 
     return WorkflowStatusResponse(
         project_id=project_id,
-        event=EventWorkflowStatus(
-            cleaned_ticket_count=int(cleaned_count),
-            analyzed_ticket_count=int(analyzed_count),
-            unanalyzed_ticket_count=max(int(cleaned_count) - int(analyzed_count), 0),
-            latest_run_id=latest_run.id if latest_run else None,
-            latest_run_status=latest_run.status if latest_run else None,
-        ),
         knowledge=KnowledgeWorkflowStatus(
             document_count=int(document_count),
             total_pages=int(page_total),

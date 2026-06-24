@@ -23,7 +23,6 @@ const mockListDocuments = vi.mocked(listDocuments);
 function knowledgeStatus(knowledge: Record<string, unknown>) {
   return {
     project_id: 'p1',
-    event: {},
     knowledge: { document_count: 0, total_pages: 0, total_chunks: 0, can_chat: false, ...knowledge },
   };
 }

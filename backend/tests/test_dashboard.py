@@ -443,18 +443,13 @@ def test_analysis_run_result_returns_404_when_run_missing(client):
 
 def test_workflow_status_happy_path(client):
     project_id = uuid.uuid4()
-    latest_run = _agent_run()
-    latest_run.id = uuid.uuid4()
-    latest_run.status = "success"
-    scalar_queue = [10, 7, 2, 12, 25]
+    scalar_queue = [2, 12, 25]
     db = MagicMock()
 
     def _side_effect(*args, **_kwargs):
         first = args[0]
         if first is Project:
             return _chain_returning(_FakeProject(project_id))
-        if first is AgentRun:
-            return _chain_returning(latest_run)
         q = _chain_returning(0)
         q.scalar.return_value = scalar_queue.pop(0)
         return q
@@ -467,13 +462,7 @@ def test_workflow_status_happy_path(client):
     body = response.json()
 
     assert body["project_id"] == str(project_id)
-    assert body["event"] == {
-        "cleaned_ticket_count": 10,
-        "analyzed_ticket_count": 7,
-        "unanalyzed_ticket_count": 3,
-        "latest_run_id": str(latest_run.id),
-        "latest_run_status": "success",
-    }
+    assert "event" not in body
     assert body["knowledge"] == {
         "document_count": 2,
         "total_pages": 12,
