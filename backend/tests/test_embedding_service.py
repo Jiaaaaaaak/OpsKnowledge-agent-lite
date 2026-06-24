@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.services.embedding_service import OpenAIEmbeddingProvider
 
 
@@ -45,7 +46,7 @@ class TestEmbed:
         provider.embed(["alpha"])
 
         kwargs = mock_openai_cls.return_value.embeddings.create.call_args.kwargs
-        assert kwargs["dimensions"] == 384
+        assert kwargs["dimensions"] == settings.embedding_dimensions
 
     @patch("openai.OpenAI")
     def test_empty_input_skips_api_call(self, mock_openai_cls):

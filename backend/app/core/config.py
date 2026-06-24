@@ -39,18 +39,22 @@ class Settings(BaseSettings):
     # 作為面試 / 地端展示預設。
     embedding_provider: str = "mock"
     llm_provider: str = "mock"
-    mock_embedding_dim: int = 384  # fixed vector dimension used by MockEmbeddingProvider
+    # 向量維度的單一真實來源；document_chunks.embedding 與各 provider 都依此值。
+    # bge-m3（Ollama 多語 embedding）輸出 1024 維。
+    embedding_dimensions: int = 1024
+    mock_embedding_dim: int = 1024  # MockEmbeddingProvider 預設維度，需與 embedding_dimensions 一致
 
     # OpenAI-compatible LLM
     openai_api_key: str = "sk-placeholder"
     openai_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 384
 
-    # Ollama (local LLM provider for private / on-premise deployment)
+    # Ollama (local LLM / embedding provider for private / on-premise deployment)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct"
+    # 多語 embedding 模型（跨語檢索：英文文件 + 中文問題）。bge-m3 輸出 1024 維。
+    ollama_embedding_model: str = "bge-m3"
     ollama_timeout_seconds: float = 180.0
 
 

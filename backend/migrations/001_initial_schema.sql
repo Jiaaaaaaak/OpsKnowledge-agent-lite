@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     document_id UUID        NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER     NOT NULL,
     content     TEXT        NOT NULL,
-    embedding   vector(384),
+    embedding   vector(1024),
     metadata    JSONB       NOT NULL DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()

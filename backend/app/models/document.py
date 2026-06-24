@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import UserDefinedType
 
+from app.core.config import settings
 from app.db.session import Base
 from app.models.base import PKMixin, TimestampMixin
 
@@ -49,7 +50,7 @@ class DocumentChunk(PKMixin, TimestampMixin, Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(VectorType(384), nullable=True)
+    embedding = Column(VectorType(settings.embedding_dimensions), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
 
     document = relationship("Document", back_populates="chunks")

@@ -31,4 +31,4 @@ def test_metadata_create_all_emits_postgresql_ddl() -> None:
     assert "CREATE TABLE agent_runs" in ddl
     assert "CREATE TABLE tool_calls" in ddl
     assert "FOREIGN KEY(project_id) REFERENCES projects (id)" in ddl
-    assert "embedding vector(384)" in ddl
+    assert "embedding vector(1024)" in ddl

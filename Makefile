@@ -76,6 +76,7 @@ psql:
 pull-ollama:
 	$(COMPOSE) up -d ollama
 	$(COMPOSE) exec ollama ollama pull $${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+	$(COMPOSE) exec ollama ollama pull $${OLLAMA_EMBEDDING_MODEL:-bge-m3}
 
 # DESTRUCTIVE: 停掉 stack 並刪除 named volumes (postgres 資料與 ollama 模型會消失)
 # 已在指令前印警語；如需自動化，可使用 `yes | make clean`。

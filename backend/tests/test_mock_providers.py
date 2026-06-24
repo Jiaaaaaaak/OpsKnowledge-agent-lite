@@ -16,6 +16,7 @@ import pytest
 from app.core.config import settings
 from app.services.embedding_service import (
     MockEmbeddingProvider,
+    OllamaEmbeddingProvider,
     OpenAIEmbeddingProvider,
     get_embedding_provider,
 )
@@ -231,6 +232,67 @@ class TestOllamaLLMProvider:
 
 
 # ─────────────────────────────────────────────────────────────
+# OllamaEmbeddingProvider
+# ─────────────────────────────────────────────────────────────
+
+class TestOllamaEmbeddingProvider:
+
+    def test_empty_input_skips_http_call(self):
+        provider = OllamaEmbeddingProvider()
+        with patch("httpx.post") as mock_post:
+            assert provider.embed([]) == []
+        mock_post.assert_not_called()
+
+    def test_batch_embed_returns_vectors_in_order(self):
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
+        provider = OllamaEmbeddingProvider(model="bge-m3")
+        with patch("httpx.post", return_value=resp) as mock_post:
+            vectors = provider.embed(["英文 query", "english doc"])
+        assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+        # 單次批次呼叫，input 帶完整清單
+        _, kwargs = mock_post.call_args
+        assert kwargs["json"]["input"] == ["英文 query", "english doc"]
+
+    def test_count_mismatch_raises(self):
+        # provider 回傳數量與輸入不符必須丟錯，避免向量錯位污染檢索
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"embeddings": [[0.1, 0.2]]}
+        provider = OllamaEmbeddingProvider()
+        with patch("httpx.post", return_value=resp):
+            with pytest.raises(RuntimeError, match="數量不符"):
+                provider.embed(["a", "b"])
+
+    def test_http_error_guides_to_pull(self):
+        import httpx
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "404", request=MagicMock(), response=MagicMock(status_code=404)
+        )
+        provider = OllamaEmbeddingProvider(model="missing-embed")
+        with patch("httpx.post", return_value=resp):
+            with pytest.raises(RuntimeError, match="ollama pull"):
+                provider.embed(["x"])
+
+    def test_uses_settings_defaults(self):
+        with patch.object(settings, "ollama_base_url", "http://example:1234"), \
+             patch.object(settings, "ollama_embedding_model", "bge-m3"), \
+             patch.object(settings, "ollama_timeout_seconds", 180.0):
+            provider = OllamaEmbeddingProvider()
+        assert provider._base_url == "http://example:1234"
+        assert provider._model == "bge-m3"
+        assert provider._timeout == 180.0
+
+
+# ─────────────────────────────────────────────────────────────
 # get_embedding_provider() factory
 # ─────────────────────────────────────────────────────────────
 
@@ -247,6 +309,11 @@ class TestGetEmbeddingProviderFactory:
              patch("openai.OpenAI"):
             provider = get_embedding_provider()
         assert isinstance(provider, OpenAIEmbeddingProvider)
+
+    def test_returns_ollama_when_configured(self):
+        with patch.object(settings, "embedding_provider", "ollama"):
+            provider = get_embedding_provider()
+        assert isinstance(provider, OllamaEmbeddingProvider)
 
     def test_mock_provider_respects_mock_embedding_dim(self):
         with patch.object(settings, "embedding_provider", "mock"), \
