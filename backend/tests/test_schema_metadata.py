@@ -11,7 +11,6 @@ import uuid
 from datetime import datetime, timezone
 
 from app.schemas.document import DocumentChunkRead, DocumentRead
-from app.schemas.record import CleanedRecordRead
 
 _NOW = datetime.now(timezone.utc)
 
@@ -53,23 +52,16 @@ def test_document_chunk_read_exposes_metadata_column_from_orm_metadata_alias() -
     assert data["metadata"] == {"filename": "sop.pdf", "page_number": 1}
 
 
-def test_cleaned_record_read_exposes_metadata_column_from_orm_metadata_alias() -> None:
-    record = _OrmObject(
+def test_document_chunk_read_metadata_defaults_to_empty_dict() -> None:
+    chunk = _OrmObject(
         id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        ticket_id="TKT-1",
-        occurred_at=None,
-        system="billing",
-        module="api",
-        issue_description="timeout",
-        resolution=None,
-        status="open",
-        priority="high",
-        metadata_={"source_row": 7},
+        document_id=uuid.uuid4(),
+        chunk_index=0,
+        content="restart procedure",
+        metadata_={},
         created_at=_NOW,
-        updated_at=_NOW,
     )
 
-    data = CleanedRecordRead.model_validate(record).model_dump()
+    data = DocumentChunkRead.model_validate(chunk).model_dump()
 
-    assert data["metadata"] == {"source_row": 7}
+    assert data["metadata"] == {}
