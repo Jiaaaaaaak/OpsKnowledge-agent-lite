@@ -1,10 +1,8 @@
-import { AlertTriangle, FileText, Layers, ListChecks } from 'lucide-react';
+import { FileText, Layers } from 'lucide-react';
 
 interface WorkflowStatusPanelProps {
   // 後端 /workflow-status 回傳內容，沿用前端既有的 any 慣例
   status: any;
-  // 只顯示與當前工作流程相關的區塊
-  variant: 'event' | 'knowledge';
 }
 
 interface MetricRowProps {
@@ -28,33 +26,9 @@ function MetricRow({ icon, label, value, highlight }: MetricRowProps) {
   );
 }
 
-// 顯示專案層級的工作流程事實（待分析事件、文件數、頁數、chunk 數等）。
-export function WorkflowStatusPanel({ status, variant }: WorkflowStatusPanelProps) {
+// 顯示知識庫工作流程狀態（文件數、頁數、chunk 數）。
+export function WorkflowStatusPanel({ status }: WorkflowStatusPanelProps) {
   if (!status) return null;
-
-  if (variant === 'event') {
-    const event = status.event || {};
-    return (
-      <div className="space-y-2">
-        <MetricRow
-          icon={<ListChecks className="h-4 w-4 text-slate-400" />}
-          label="已清理工單"
-          value={event.cleaned_ticket_count ?? 0}
-        />
-        <MetricRow
-          icon={<ListChecks className="h-4 w-4 text-slate-400" />}
-          label="已分析工單"
-          value={event.analyzed_ticket_count ?? 0}
-        />
-        <MetricRow
-          icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
-          label="待分析工單"
-          value={event.unanalyzed_ticket_count ?? 0}
-          highlight={(event.unanalyzed_ticket_count ?? 0) > 0}
-        />
-      </div>
-    );
-  }
 
   const knowledge = status.knowledge || {};
   return (

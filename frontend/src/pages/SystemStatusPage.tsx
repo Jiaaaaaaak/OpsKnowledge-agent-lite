@@ -55,7 +55,7 @@ export default function SystemStatusPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-slate-900">PostgreSQL</h4>
-                  <p className="text-xs text-slate-500">關聯式資料庫 (事件與元資料)</p>
+                  <p className="text-xs text-slate-500">關聯式資料庫（文件、索引與稽核紀錄）</p>
                 </div>
               </div>
               <div className="flex items-center space-x-3">

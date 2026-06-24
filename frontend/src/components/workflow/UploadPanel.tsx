@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 interface UploadPanelProps {
   title: string;
   description: string;
-  // 接受的副檔名，例如 ".csv,.xlsx,.json"
+  // 接受的副檔名，例如 ".pdf"
   accept: string;
   idleLabel: string;
   loadingLabel: string;
@@ -17,7 +17,7 @@ interface UploadPanelProps {
   renderResult?: (result: any) => React.ReactNode;
 }
 
-// 事件工單與技術文件共用的上傳面板，自行管理檔案 / 載入 / 結果 / 錯誤狀態。
+// 技術文件上傳面板，自行管理檔案 / 載入 / 結果 / 錯誤狀態。
 export function UploadPanel({
   title,
   description,
