@@ -7,42 +7,36 @@ English | [繁體中文](ARCHITECTURE.zh-TW.md)
 ```mermaid
 graph TD
     subgraph Frontend["Frontend (React :8501)"]
-        UI_Upload[Upload Page]
-        UI_Chat[Chat / Q&A Page]
-        UI_Dashboard[Dashboard Page]
-        UI_Logs[Agent Logs Page]
+        UI_Workflow[Knowledge Workflow]
+        UI_Logs[Agent Runs Page]
+        UI_Status[System Status]
     end
 
     subgraph Backend["Backend (FastAPI :8000)"]
         API[REST API Layer]
         SVC_DOC[Document Service]
-        SVC_ETL[ETL Service]
-        SVC_AI[AI Analysis Service]
+        SVC_CHAT[Chat Service]
         SVC_LOG[Observability Service]
         LLM[LLMProvider\n(OpenAI / Ollama)]
     end
 
     subgraph Storage["Storage"]
-        PG[(PostgreSQL\n:5432)]
         PGVECTOR[(PostgreSQL + pgvector\n:5432)]
     end
 
-    UI_Upload --> API
-    UI_Chat --> API
-    UI_Dashboard --> API
+    UI_Workflow --> API
     UI_Logs --> API
+    UI_Status --> API
 
     API --> SVC_DOC
-    API --> SVC_ETL
-    API --> SVC_AI
+    API --> SVC_CHAT
     API --> SVC_LOG
 
     SVC_DOC --> PGVECTOR
     SVC_DOC --> LLM
-    SVC_ETL --> PG
-    SVC_AI --> LLM
-    SVC_AI --> PG
-    SVC_LOG --> PG
+    SVC_CHAT --> LLM
+    SVC_CHAT --> PGVECTOR
+    SVC_LOG --> PGVECTOR
 ```
 
 ## Component Responsibilities
@@ -54,9 +48,8 @@ graph TD
 | `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
 | `services/vector_store.py` | `VectorStoreService` wrapping PostgreSQL + pgvector: upsert chunk vectors, project-scoped similarity search |
 | `services/llm_service.py` | `LLMProvider` interface + `OpenAICompatibleLLMProvider`; `build_rag_prompt` and `format_citations` pure functions |
-| `services/etl_service.py` | CSV/Excel/JSON ingestion, normalization, PostgreSQL insertion |
-| `services/ai_service.py` | Orchestrates LLM tool calls for classification, scoring, insights |
-| `services/log_service.py` | Records every AI run to `ai_run_log` table |
+| `services/chat_service.py` | RAG chat: retrieve → prompt → LLM → citations |
+| `services/log_service.py` | Records every AI run to `agent_runs` / `tool_calls` tables |
 | `tools/` | Individual AI tool definitions (structured function call specs) |
 | `db/session.py` | SQLAlchemy engine, session factory, `get_db` dependency |
 | `core/config.py` | All configuration via environment variables (Pydantic Settings) |
@@ -121,82 +114,6 @@ POST /projects/{id}/chat  { question, top_k }
   │
   └─ Return ChatResponse  { answer, citations[] }
        citations map back to PostgreSQL via chunk_id == document_chunks.id
-```
-
-### Incident ETL + AI Analysis
-
-```
-POST /projects/{id}/upload/tickets
-  │
-  ├─ Extension validation (.csv / .xlsx / .json)
-  │
-  ├─ Format parsing
-  │    ├─ CSV  → stdlib csv.DictReader
-  │    ├─ JSON → stdlib json.loads (supports list / wrapped object / single object)
-  │    └─ XLSX → openpyxl (lazy import)
-  │
-  ├─ Per-row processing
-  │    ├─ RawRecord INSERT (raw data, regardless of validation outcome)
-  │    ├─ normalize_columns()  column synonym mapping → standard column names
-  │    ├─ CleanedTicket(Pydantic)  strip / empty→None / required validation / defaults
-  │    │    ├─ Success → CleanedRecord INSERT
-  │    │    └─ Failure → append to errors[], raw_records still retained
-  │    └─ db.commit()
-  │
-  └─ Return TicketImportSummary
-       { raw_count, cleaned_count, failed_count, errors }
-
-Incident batch → LLM classify + score → AI results → PostgreSQL (incident_analysis table)
-Every LLM call → log tokens/latency → PostgreSQL (agent_runs table)
-```
-
-### Incident Analysis Agent Workflow
-
-```
-POST /projects/{id}/analyze/incidents
-  │
-  ├─ Project 404 guard
-  │
-  ├─ Load cleaned_records WHERE id NOT IN (existing incident_analysis.record_id)
-  │    └─ Idempotent: previously-analyzed records are skipped, never overwritten
-  │
-  ├─ One AgentRun row (id pre-generated) — task_type="analyze_incidents"
-  │
-  ├─ Tool 1: classify_incidents(records)
-  │    └─ Per record: LLMProvider.complete(<<AGENT_TASK:classify>>, record_json)
-  │         → ClassifyOutput Pydantic validation
-  │         → ToolCall row (tool_name="classify_incidents", category counts)
-  │
-  ├─ Tool 2: analyze_severity(records)
-  │    └─ Per record: LLMProvider.complete(<<AGENT_TASK:severity>>, record_json)
-  │         → SeverityOutput Pydantic validation (severity 1-5, sentiment -1..1, confidence 0..1)
-  │         → needs_review = confidence < 0.65
-  │         → ToolCall row (tool_name="analyze_severity", needs_review count)
-  │
-  ├─ Persist IncidentAnalysis rows (combines tool 1 + tool 2 outputs per record_id)
-  │
-  ├─ Tool 3: generate_insights({category_counts, high_severity_samples, total})
-  │    └─ LLMProvider.complete(<<AGENT_TASK:insights>>, aggregation_json)
-  │         → InsightsOutput Pydantic validation
-  │         → Insight rows INSERT
-  │         → ToolCall row (tool_name="generate_insights")
-  │
-  ├─ Tool 4: create_action_items(insights)
-  │    └─ LLMProvider.complete(<<AGENT_TASK:action_items>>, insights_json)
-  │         → ActionItemsOutput Pydantic validation
-  │         → ActionItem rows INSERT (status="open")
-  │         → ToolCall row (tool_name="create_action_items")
-  │
-  ├─ AgentRun UPDATE (status, latency_ms, output_json={summary, tools_run})
-  │    status = "success" | "partial" (some tool validation failed) | "error" (orchestrator-level)
-  │
-  └─ Return AnalyzeResponse  { agent_run_id, status, summary }
-
-Safety properties:
-- No destructive actions: existing analysis rows are never deleted (Rule 15)
-- No external side effects: no email, no Slack, no outbound HTTP beyond LLM provider
-- Deterministic in mock mode: MockLLMProvider dispatches by <<AGENT_TASK:xxx>> marker
-- Validation failures are surfaced (Rule 12): logged + recorded in tool_calls.error_message
 ```
 
 ## Port Map

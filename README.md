@@ -2,7 +2,7 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-An enterprise-style AI + Data Engineering POC for IT operations and system integration scenarios.
+An interview-ready RAG knowledge base for IT operations documents. It ingests PDF SOPs and manuals, chunks and embeds them into PostgreSQL + pgvector, answers operational questions with citations, and records AI runs for auditability.
 
 ## Language / 語言說明
 
@@ -29,10 +29,9 @@ review internationally.
 | Capability | Description |
 |---|---|
 | Document RAG | Upload PDF manuals/SOPs → chunk, embed, retrieve via PostgreSQL + pgvector |
-| Incident ETL | Upload CSV/Excel/JSON tickets → normalize, clean, store in PostgreSQL |
-| AI Analysis | Classify incidents, score severity, generate insights and action items |
+| RAG Chat | Ask operational questions → semantic search → LLM answer with citations |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
-| Dashboard | React UI for uploads, Q&A, analysis, and agent logs |
+| UI | React guided workflow for uploads, Q&A, and agent run inspection |
 
 ## Tech Stack
 
@@ -332,7 +331,7 @@ opsknowledge-agent-lite/
     tests/
   frontend/          React UI (Vite + TypeScript + Tailwind CSS)
   docs/              Architecture, PRD, data model, API docs
-  demo_data/         Sample tickets and PDFs for demos
+  demo_data/         Sample PDFs for demos
   docker-compose.yml
 ```
 
@@ -426,85 +425,6 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 > PostgreSQL, so you can join search hits back to the full row:
 > `SELECT * FROM document_chunks WHERE id = '<chunk_id>';`
 
-## Upload Incident Tickets
-
-```bash
-# 1. Create a project and capture the project_id
-PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
-  -H "Content-Type: application/json" \
-  -d '{"name":"IT Operations Demo"}' | jq -r '.id')
-
-# 2. Upload a CSV (.xlsx and .json are also supported)
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
-  -F "file=@demo_data/tickets/sample_incidents.csv"
-
-# Expected response
-# {
-#   "raw_count": 22,
-#   "cleaned_count": 22,
-#   "failed_count": 0,
-#   "errors": []
-# }
-```
-
-## Verify Records in PostgreSQL
-
-```sql
--- Inspect raw_records (original data)
-SELECT id, source_file, raw_json->>'ticket_id' AS ticket_id, created_at
-FROM raw_records
-WHERE project_id = '<your-project-id>'
-ORDER BY created_at
-LIMIT 5;
-
--- Inspect cleaned_records (ETL output)
-SELECT ticket_id, occurred_at, system, module, status, priority
-FROM cleaned_records
-WHERE project_id = '<your-project-id>'
-ORDER BY occurred_at
-LIMIT 10;
-
--- Count distribution by priority
-SELECT priority, COUNT(*) FROM cleaned_records
-WHERE project_id = '<your-project-id>'
-GROUP BY priority;
-```
-
-## Incident Analysis Agent
-
-After ingesting tickets, run the multi-tool incident analysis agent. It chains four
-LLM-driven tools and writes results into PostgreSQL with full audit trail.
-
-```bash
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
-
-# Expected response
-# {
-#   "agent_run_id": "9c8f3b1a-0f4c-4f1d-9b65-1c0c3a86a512",
-#   "status": "success",
-#   "summary": {
-#     "records_analyzed": 20,
-#     "needs_review": 3,
-#     "insights_created": 5,
-#     "action_items_created": 4
-#   }
-# }
-```
-
-**The four tools (run in sequence)**
-
-| # | Tool | Persists to |
-|---|---|---|
-| 1 | `classify_incidents` — categorize each ticket | (combined into `incident_analysis`) |
-| 2 | `analyze_severity` — severity 1-5, sentiment, confidence, `needs_review` flag | `incident_analysis` |
-| 3 | `generate_insights` — project-level patterns and recommendations | `insights` |
-| 4 | `create_action_items` — actionable follow-ups derived from insights | `action_items` (all `status="open"`) |
-
-Every tool requests structured JSON from the LLM and validates the output with
-Pydantic; validation failures are recorded rather than silently dropped. The endpoint
-is idempotent — re-running it skips records already in `incident_analysis`. Full API
-reference: [docs/API.md](docs/API.md#incident-analysis-agent).
-
 ## Frontend (React)
 
 The React UI is the recommended way to drive the full demo. It mirrors the
@@ -517,11 +437,8 @@ backend API surface and is what an interviewer or stakeholder will actually see.
 | Page | Route | Purpose |
 |---|---|---|
 | Project Setup | `/projects` | Create or select the active project (kept in React context) |
-| Documents | `/documents` | Upload PDFs (RAG corpus); view uploaded documents |
-| Knowledge Chat | `/chat` | RAG Q&A — answer + citations (filename, chunk index, snippet) |
-| Incident Analysis | `/analysis` | One-click "Run Incident Analysis" — fires the 4-tool agent and shows the summary |
-| Dashboard | `/dashboard` | Ticket count, category / severity distribution charts, top insights, open action items, recent agent runs |
-| Agent Logs | `/agent-runs` | Browse `agent_runs`; select a row to drill into its `tool_calls` (input / output / errors / latency per tool) |
+| Knowledge Workflow | `/knowledge/workflow` | Guided flow: upload PDF → confirm chunks → RAG chat with citations |
+| Agent Runs | `/agent-runs` | Browse `agent_runs`; drill into `tool_calls` (input / output / errors / latency per tool) |
 | System Status | `/status` | Backend health and service connectivity |
 
 ### Run with Docker (preferred for demo)
@@ -555,17 +472,16 @@ PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
   -F "file=@demo_data/documents/your_manual.pdf"
 
-# 3. Upload incident tickets (CSV / Excel / JSON)
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
-  -F "file=@demo_data/tickets/sample_incidents.csv"
+# 3. Confirm document count, pages, and chunks
+curl "http://localhost:8000/projects/${PROJECT_ID}/workflow-status"
 
-# 4. Run the incident analysis agent
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
-
-# 5. Ask a grounded question over the SOP corpus
+# 4. Ask a grounded question over the SOP corpus
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
   -H "Content-Type: application/json" \
   -d '{"question":"How do I respond to a Docker volume outage?","top_k":5}'
+
+# 5. Inspect agent runs and tool calls for retrieval observability
+curl "http://localhost:8000/projects/${PROJECT_ID}/agent-runs"
 ```
 
 ## Observability & Debugging
@@ -597,17 +513,9 @@ ORDER BY ar.created_at DESC;
 ```
 
 How to use this trail when something looks wrong:
-- **`agent_runs.status = "partial"`** → at least one tool's LLM output failed Pydantic
-  validation. Look at `tool_calls.error_message` for the failing tool to see the parse
-  error, then `tool_calls.input_json` to see what was sent. The orchestrator does not
-  retry — partial runs persist whatever the other tools produced.
 - **`agent_runs.status = "error"`** → orchestrator-level failure (LLM provider
   unreachable, DB error, etc.). `agent_runs.error_message` carries the exception.
-- **Unexpected category / severity** → `tool_calls.output_json` for `classify_incidents`
-  and `analyze_severity` summarizes counts; join with `incident_analysis` by record
-  to drill in.
-- **High latency** → `tool_calls.latency_ms` per tool isolates the slow step (typically
-  one of the per-record tools when running against a real LLM).
+- **High latency** → `tool_calls.latency_ms` per tool isolates the slow step.
 
 ## Troubleshooting
 
@@ -626,14 +534,12 @@ How to use this trail when something looks wrong:
 
 ## Implementation Status
 
-- [x] Step 1: Project scaffold, health endpoint, Docker Compose
-- [x] Step 2-pre: PostgreSQL data model (10 tables, ORM models, Pydantic schemas, SQL migration)
-- [x] Step 2: PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
-- [x] Step 2b: Embedding + PostgreSQL + pgvector vector storage & search (`GET /projects/{id}/search`)
-- [x] Step 3: Incident ETL (`POST /projects/{id}/upload/tickets` — CSV/Excel/JSON → PostgreSQL)
-- [x] Prompt 7: RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
-- [x] Prompt 7: Observability — every chat request writes `agent_runs` + `tool_calls` rows
-- [x] Step 4: Incident analysis agent (`POST /projects/{id}/analyze/incidents` — 4 tools, structured JSON, Pydantic validation, full agent_runs/tool_calls trail)
-- [x] Step 6: React dashboard (Vite + TypeScript + Tailwind CSS)
+- [x] Project scaffold, health endpoint, Docker Compose
+- [x] PostgreSQL data model (ORM models, Pydantic schemas, SQL migration)
+- [x] PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
+- [x] Embedding + PostgreSQL + pgvector vector storage & search (`GET /projects/{id}/search`)
+- [x] RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
+- [x] Observability — every chat request writes `agent_runs` + `tool_calls` rows
+- [x] React guided workflow UI (Vite + TypeScript + Tailwind CSS)
 - [x] Local model provider (Ollama) — native HTTP LLM provider for private / on-premise deployment
-- [ ] Step 8+: Local embedding provider, additional agent tools
+- [ ] Local embedding provider, additional agent tools

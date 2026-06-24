@@ -2,7 +2,7 @@
 
 English | [繁體中文](DEMO_SCRIPT.zh-TW.md)
 
-Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
+Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 
 ---
 
@@ -16,7 +16,6 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 5. Open `http://localhost:8501` in browser.
 6. Have ready:
    - A PDF in `demo_data/documents/` (any IT SOP / manual)
-   - `demo_data/tickets/sample_incidents.csv` (ships with the repo)
 
 ---
 
@@ -24,31 +23,29 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 
 ### Scene 1 · Project Setup (15s)
 
-> "First I create a project — every upload, chat, and analysis is scoped to a project."
+> "First I create a project — every upload and chat is scoped to a project."
 
 - Sidebar → **Project Setup**
 - Create new: name `IT Operations Demo` → **Create**
 - The active project chip in the sidebar updates immediately.
 
-### Scene 2 · Upload PDF + Tickets (35s)
+### Scene 2 · Upload PDF Documents (30s)
 
-> "Two kinds of data go in: SOP PDFs for RAG, and incident tickets for analysis."
+> "SOP PDFs go in for RAG. Each page is chunked, embedded, and stored in PostgreSQL + pgvector."
 
-- Sidebar → **Upload**
-- Tab **PDF Documents** → upload `demo_data/documents/<sop>.pdf` → **Upload PDF**
+- Sidebar → **Knowledge Workflow**
+- Upload `demo_data/documents/<sop>.pdf`
   → success card shows `chunk_count` and `page_count`.
-- Tab **Incident Tickets** → upload `sample_incidents.csv` → **Upload Tickets**
-  → metrics row shows `raw_count`, `cleaned_count`, `failed_count`.
 
-> Talking point: "PDF is chunked → embedded → PostgreSQL + pgvector. Tickets are normalized via
-> column-synonym mapping into `cleaned_records`. Both happen behind one upload click."
+> Talking point: "PDF is chunked → embedded → PostgreSQL + pgvector. One upload click,
+> fully indexed and ready for semantic search."
 
-### Scene 3 · Knowledge Chat (RAG) (30s)
+### Scene 3 · Knowledge Chat (RAG) (40s)
 
 > "Now I can ask the SOP a question. The model is only allowed to answer from
 > retrieved chunks — if the PDF doesn't cover it, it refuses rather than fabricating."
 
-- Sidebar → **Knowledge Chat**
+- In the workflow page, the chat step becomes active.
 - Ask: `What should I check if a Docker volume disappears after restart?`
 - The answer renders, followed by an expandable citation per chunk
   (filename · chunk_index · snippet).
@@ -56,43 +53,32 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 > Talking point: "Every chat call writes one `agent_runs` row and one
 > `tool_calls` row for the vector retrieval — fully auditable."
 
-### Scene 4 · Incident Analysis Agent (40s)
+### Scene 4 · Agent Runs / Observability (30s)
 
-> "This is the agent. One button fires a 4-tool pipeline that classifies, scores,
-> generates insights, and produces action items — all with structured-JSON output
-> validated by Pydantic."
+> "Here's how I prove what the agent actually did. Every run is queryable."
 
-- Sidebar → **Incident Analysis** → **▶️ Run Incident Analysis**
-- 4 metrics appear: `records_analyzed`, `needs_review`, `insights_created`,
-  `action_items_created`.
-
-> Talking point: "`needs_review` flags tickets where the LLM confidence < 0.65 —
-> that's the human-in-the-loop queue. Not a decoration; it's an operational input."
-
-### Scene 5 · Dashboard (30s)
-
-> "Read-only aggregation, pure SQL, no LLM call — this is what the ops lead sees."
-
-- Sidebar → **Dashboard**
-- Walk through: ticket count, needs_review count, category bar chart, severity
-  bar chart, top insights (expandable), open action items table, recent agent runs.
-
-> Talking point: "Same `agent_runs` table powers both Chat observability and this
-> 'recent runs' panel — one log surface, two views."
-
-### Scene 6 · Agent Logs / Observability (30s)
-
-> "And here's how I prove what the agent actually did. Every run is queryable."
-
-- Sidebar → **Agent Logs**
-- Top table lists all `agent_runs` (chat + analyze).
-- Select the most recent `analyze_incidents` run.
-- Show drill-down: status, latency, model, then expand each of the 4 tool calls
-  → input_json / output_json / per-tool latency / error_message if any.
+- Sidebar → **Agent Runs**
+- Top table lists all `agent_runs` (chat runs).
+- Select the most recent `rag_chat` run.
+- Show drill-down: status, latency, model, then expand the `vector_search` tool call
+  → input_json / output_json / latency.
 
 > Closing line: "Black-box LLM agent turned into a system you can debug after the
-> fact: pick a run, see every tool's exact input and output, find the validation
-> failure if any. That's what makes it shippable."
+> fact: pick a run, see the exact retrieval input and output. That's what makes it shippable."
+
+### Scene 5 · System Status (15s)
+
+> "Quick health check — the system status page shows all backend service connectivity."
+
+- Sidebar → **System Status**
+- Show DB, vector, and API health indicators.
+
+### Scene 6 · Provider Switchability (15s)
+
+> "One last thing — the LLM and embedding providers are fully pluggable."
+
+- Show `.env` file: `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock`.
+- Explain: switch to `openai` or `mock` by changing `.env` only, no code changes.
 
 ---
 
@@ -101,14 +87,11 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 - **Local-first LLMProvider abstraction** — default interview mode is
   `LLM_PROVIDER=ollama` with `EMBEDDING_PROVIDER=mock`. The same UI can still switch
   to hosted OpenAI or fully deterministic mock providers with `.env` only.
-- **Idempotent agent run** — re-running `/analyze/incidents` only processes
-  records not yet in `incident_analysis`. Never deletes prior analysis.
 - **Pydantic at the LLM boundary** — every structured output is validated; failures
   are surfaced into `tool_calls.error_message`, not silently swallowed (Rule 12).
-- **Schema stability** — Prompt 10 (Dashboard) and Prompt 11 (this UI) added zero
-  new columns / tables; everything is a read view over the existing 10 tables.
-- **Dashboard read/write split** — Dashboard endpoint never calls the LLM. Fast,
+- **Dashboard read/write split** — workflow-status endpoint never calls the LLM. Fast,
   deterministic, safe to auto-refresh.
+- **Provider switchability** — `mock`, `ollama`, `openai` — one `.env` change, no code change.
 
 ---
 
@@ -116,7 +99,7 @@ Total demo time: **~3 minutes** (tight script) / ~8 minutes (full walkthrough).
 
 | Failure | Fallback |
 |---|---|
-| PostgreSQL + pgvector down | Skip Scene 3 (Chat); the rest of the flow still works |
+| PostgreSQL + pgvector down | Skip Scene 3 (Chat); show the upload and observability pages |
 | Ollama model missing | Run `docker compose exec ollama ollama pull qwen2.5:7b-instruct`; switch `LLM_PROVIDER=mock` if you need an immediate fallback |
 | Upload fails on a custom PDF | Use the public-domain PDF you pre-staged in `demo_data/documents/` |
 | Demo machine offline | Ollama + mock embeddings run locally once the model is already pulled |

@@ -2,7 +2,7 @@
 
 [English](README.md) | 繁體中文
 
-一套面向 IT 維運與系統整合情境的企業級 AI + 資料工程概念驗證（POC）專案。
+OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG 知識庫系統。它能匯入 PDF SOP 與技術手冊，切塊並嵌入 PostgreSQL + pgvector，透過附引用來源的 RAG 回答維運問題，並記錄 AI 執行過程以利稽核。
 
 ## 語言說明 / Language
 
@@ -27,10 +27,9 @@
 | 能力 | 說明 |
 |---|---|
 | 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、透過 PostgreSQL + pgvector 檢索 |
-| 事件 ETL | 上傳 CSV／Excel／JSON 工單 → 正規化、清洗、寫入 PostgreSQL |
-| AI 分析 | 事件分類、嚴重度評分、產生洞察與行動項目 |
+| RAG 問答 | 提出維運問題 → 語意搜尋 → LLM 附引用來源回答 |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
-| 儀表板 | 以 React 提供上傳、問答、分析與代理日誌介面 |
+| UI | React 引導式流程，涵蓋上傳、問答與 Agent 執行紀錄檢視 |
 
 ## 技術堆疊
 
@@ -324,7 +323,7 @@ opsknowledge-agent-lite/
     tests/
   frontend/          React UI (Vite + TypeScript + Tailwind CSS)
   docs/              架構、PRD、資料模型、API 文件
-  demo_data/         供 Demo 用的範例工單與 PDF
+  demo_data/         供 Demo 用的範例 PDF
   docker-compose.yml
 ```
 
@@ -416,84 +415,6 @@ curl "http://localhost:8000/projects/${PROJECT_ID}/search?query=how%20to%20resta
 > 因此可將搜尋結果對回完整資料列：
 > `SELECT * FROM document_chunks WHERE id = '<chunk_id>';`
 
-## 上傳事件工單
-
-```bash
-# 1. 建立專案，取得 project_id
-PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
-  -H "Content-Type: application/json" \
-  -d '{"name":"IT Operations Demo"}' | jq -r '.id')
-
-# 2. 上傳 CSV（也支援 .xlsx、.json）
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
-  -F "file=@demo_data/tickets/sample_incidents.csv"
-
-# 預期回應
-# {
-#   "raw_count": 22,
-#   "cleaned_count": 22,
-#   "failed_count": 0,
-#   "errors": []
-# }
-```
-
-## 在 PostgreSQL 中驗證資料
-
-```sql
--- 確認 raw_records 原始資料
-SELECT id, source_file, raw_json->>'ticket_id' AS ticket_id, created_at
-FROM raw_records
-WHERE project_id = '<your-project-id>'
-ORDER BY created_at
-LIMIT 5;
-
--- 確認 cleaned_records 清洗結果
-SELECT ticket_id, occurred_at, system, module, status, priority
-FROM cleaned_records
-WHERE project_id = '<your-project-id>'
-ORDER BY occurred_at
-LIMIT 10;
-
--- 統計各 priority 分佈
-SELECT priority, COUNT(*) FROM cleaned_records
-WHERE project_id = '<your-project-id>'
-GROUP BY priority;
-```
-
-## 事件分析 Agent
-
-匯入工單後，呼叫多工具事件分析 agent。它會串接 4 個 LLM 驅動的工具，
-結果寫入 PostgreSQL，同時留下完整稽核紀錄。
-
-```bash
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
-
-# 預期回應
-# {
-#   "agent_run_id": "9c8f3b1a-0f4c-4f1d-9b65-1c0c3a86a512",
-#   "status": "success",
-#   "summary": {
-#     "records_analyzed": 20,
-#     "needs_review": 3,
-#     "insights_created": 5,
-#     "action_items_created": 4
-#   }
-# }
-```
-
-**4 個工具（依序執行）**
-
-| # | 工具 | 寫入 |
-|---|---|---|
-| 1 | `classify_incidents` — 將每筆 ticket 分類 | （與工具 2 合併寫入 `incident_analysis`） |
-| 2 | `analyze_severity` — 嚴重度 1-5、情緒、信心、`needs_review` 旗標 | `incident_analysis` |
-| 3 | `generate_insights` — 專案層級的模式與建議 | `insights` |
-| 4 | `create_action_items` — 由 insights 衍生的後續行動 | `action_items`（全部 `status="open"`） |
-
-每個工具向 LLM 索取結構化 JSON 並以 Pydantic 驗證；驗證失敗會被記錄而非
-靜默吞掉。端點是 idempotent 的 — 重跑時會略過已在 `incident_analysis` 內的紀錄。
-完整 API 參考：[docs/API.zh-TW.md](docs/API.zh-TW.md#事件分析-agent)。
-
 ## 前端（React）
 
 React UI 是跑完整 demo 流程的推薦方式，鏡像了後端 API surface，
@@ -504,12 +425,9 @@ React UI 是跑完整 demo 流程的推薦方式，鏡像了後端 API surface�
 | 頁面 | 用途 |
 |---|---|
 | 專案設定 | 建立或選擇目前專案 |
-| 文件上傳 | 上傳 PDF（RAG 語料） |
-| 事件上傳 | 上傳事件 ticket（CSV / Excel / JSON → ETL → cleaned_records） |
-| 知識庫問答 | RAG 問答 — 回答 + 引用（filename、chunk index、snippet） |
-| 事件分析 | 一鍵「執行事件分析」— 觸發 4-tool agent 並顯示摘要 |
-| 分析儀表板 | 工單總數、重點洞察、未處理行動項目 |
-| Agent 執行紀錄 | 瀏覽 `agent_runs`；選一筆 drill 進它的 `tool_calls`（每個工具的 input / output / 錯誤 / 延遲） |
+| 知識庫問答流程 | 引導式流程：上傳 PDF → 確認 chunk → RAG 附引用來源問答 |
+| Agent 執行紀錄 | 瀏覽 `agent_runs`；drill 進 `tool_calls`（input / output / 錯誤 / 延遲） |
+| 系統狀態 | 後端服務健康度與連線狀態 |
 
 ### 用 Docker 跑（demo 推薦）
 ```bash
@@ -532,7 +450,7 @@ npm run dev
 Vite dev server 會透過 `/api` proxy 轉發到 `http://localhost:8000`，
 不需額外設定 `BACKEND_URL`。
 
-## Demo Flow（端到端，mock 模式）
+## Demo Flow（端到端，地端 Ollama 模式）
 
 ```bash
 # 1. 建立 project
@@ -544,17 +462,16 @@ PROJECT_ID=$(curl -s -X POST http://localhost:8000/projects/ \
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
   -F "file=@demo_data/documents/your_manual.pdf"
 
-# 3. 上傳事件 ticket（CSV / Excel / JSON）
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/tickets" \
-  -F "file=@demo_data/tickets/sample_incidents.csv"
+# 3. 確認文件數、頁數與 chunk 數
+curl "http://localhost:8000/projects/${PROJECT_ID}/workflow-status"
 
-# 4. 跑事件分析 agent
-curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/analyze/incidents"
-
-# 5. 向 SOP 語料問問題
+# 4. 向 SOP 語料問問題
 curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
   -H "Content-Type: application/json" \
   -d '{"question":"How do I respond to a Docker volume outage?","top_k":5}'
+
+# 5. 檢視 Agent 執行紀錄與 Tool Calls（檢索可觀測性）
+curl "http://localhost:8000/projects/${PROJECT_ID}/agent-runs"
 ```
 
 ## 可觀測性與除錯
@@ -585,16 +502,9 @@ ORDER BY ar.created_at DESC;
 ```
 
 碰到狀況時的判讀：
-- **`agent_runs.status = "partial"`** → 至少有一個 tool 的 LLM 輸出沒通過 Pydantic
-  驗證。看那個 tool 的 `tool_calls.error_message` 看 parse 錯誤，再看
-  `tool_calls.input_json` 看送出去的內容。Orchestrator 不會 retry —
-  partial run 會保留其他 tool 已產出的結果。
 - **`agent_runs.status = "error"`** → Orchestrator 層級失敗（LLM provider 連不上、
   DB 錯誤等）。`agent_runs.error_message` 就是 exception 訊息。
-- **分類 / 嚴重度看起來怪** → `classify_incidents` 與 `analyze_severity` 的
-  `tool_calls.output_json` 有彙總；join `incident_analysis` 鑽下去看單筆。
-- **延遲高** → 比較 `tool_calls.latency_ms` 找出慢的 step（用真實 LLM 時通常是
-  per-record 的工具）。
+- **延遲高** → 比較 `tool_calls.latency_ms` 找出慢的 step。
 
 ## Troubleshooting
 
@@ -613,15 +523,12 @@ ORDER BY ar.created_at DESC;
 
 ## 實作進度
 
-- [x] 步驟 1：專案骨架、health 端點、Docker Compose
-- [x] 步驟 2-pre：PostgreSQL 資料模型（10 張資料表、ORM 模型、Pydantic 結構、SQL 遷移）
-- [x] 步驟 2：PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`）
-- [x] 步驟 2b：嵌入 + PostgreSQL + pgvector 向量儲存與搜尋（`GET /projects/{id}/search`）
-- [x] 步驟 3：事件 ETL（`POST /projects/{id}/upload/tickets` — CSV / Excel / JSON → PostgreSQL）
-- [x] Prompt 7：RAG chat API（`POST /projects/{id}/chat` — retrieval → LLM → 回答 + 引用）
-- [x] Prompt 7：可觀測性 — 每次 chat 請求都寫 `agent_runs` + `tool_calls`
-- [x] 步驟 4：事件分析 agent（`POST /projects/{id}/analyze/incidents` — 4 個工具、結構化 JSON、Pydantic 驗證、完整 agent_runs / tool_calls 追溯）
-- [x] 步驟 5：Dashboard 與 Observability 唯讀 API（`GET /projects/{id}/dashboard`、`/agent-runs`、`/agent-runs/{id}/tool-calls`）
-- [x] 步驟 6：React 7 頁面 demo UI（繁體中文，Vite + TypeScript + Tailwind CSS）
+- [x] 專案骨架、health 端點、Docker Compose
+- [x] PostgreSQL 資料模型（ORM 模型、Pydantic 結構、SQL 遷移）
+- [x] PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`）
+- [x] 嵌入 + PostgreSQL + pgvector 向量儲存與搜尋（`GET /projects/{id}/search`）
+- [x] RAG chat API（`POST /projects/{id}/chat` — retrieval → LLM → 回答 + 引用）
+- [x] 可觀測性 — 每次 chat 請求都寫 `agent_runs` + `tool_calls`
+- [x] React 引導式流程 UI（繁體中文，Vite + TypeScript + Tailwind CSS）
 - [x] 本地模型 provider（Ollama）— 原生 HTTP LLM provider，供私有／地端部署
-- [ ] 步驟 8+：本地 embedding provider、其他 agent 工具
+- [ ] 本地 embedding provider、其他 agent 工具
