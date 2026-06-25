@@ -149,6 +149,8 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
     stop_reason = "completed"
     chitchat = _is_chitchat(body.question)  # 純閒聊才允許不檢索
     forced_search = False
+    run_status = "success"
+    run_error: str | None = None
 
     try:
         for _ in range(settings.agent_max_steps):
@@ -221,28 +223,34 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
             _accumulate_usage(total_usage, final.usage)
             answer = final.content or ""
     except RuntimeError as exc:
-        # provider 連線/模型問題（含未支援 tool-calling）-> 對外 500，與 /chat 一致。
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-
-    if not answer.strip():
-        answer = "The document does not contain enough information to answer this question."
-    answer = to_traditional(answer)  # 小模型常輸出簡體 → 統一轉繁體（台灣）
+        # provider 連線/模型問題（含未支援 tool-calling）：先記錄 AgentRun 失敗 + 已蒐集的
+        # 檢索軌跡（可觀測性），再對外 500，與 /chat 的稽核行為一致。
+        run_status = "error"
+        run_error = str(exc)
 
     total_ms = int((time.monotonic() - total_start) * 1000)
-
-    # 引用聚合：跨多次檢索去重後取前 N 筆，再對跨語的 snippet 翻成提問語言。
-    citation_dicts = format_citations(list(accumulated_hits.values())[:_MAX_CITATIONS])
     query_language = detect_language(body.question)
     translated_count = 0
     translate_failed = 0
-    cross_lingual = [c for c in citation_dicts if c["snippet"] and c["source_language"] != query_language]
-    for citation in cross_lingual:
-        try:
-            citation["snippet_translated"] = translate_snippet(citation["snippet"], query_language, provider=llm)
-            translated_count += 1
-        except Exception:
-            translate_failed += 1
-    citations = [Citation(**c) for c in citation_dicts]
+    cross_lingual: list[dict] = []
+    citations: list[Citation] = []
+
+    # 僅在成功時整理答案與引用翻譯；provider 失敗時保留已蒐集軌跡，不再呼叫已壞的 LLM。
+    if run_status == "success":
+        if not answer.strip():
+            answer = "The document does not contain enough information to answer this question."
+        answer = to_traditional(answer)  # 小模型常輸出簡體 → 統一轉繁體（台灣）
+
+        # 引用聚合：跨多次檢索去重後取前 N 筆，再對跨語的 snippet 翻成提問語言。
+        citation_dicts = format_citations(list(accumulated_hits.values())[:_MAX_CITATIONS])
+        cross_lingual = [c for c in citation_dicts if c["snippet"] and c["source_language"] != query_language]
+        for citation in cross_lingual:
+            try:
+                citation["snippet_translated"] = translate_snippet(citation["snippet"], query_language, provider=llm)
+                translated_count += 1
+            except Exception:
+                translate_failed += 1
+        citations = [Citation(**c) for c in citation_dicts]
 
     agent_run_id = uuid.uuid4()
     db.add(
@@ -250,7 +258,7 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
             id=agent_run_id,
             project_id=project_id,
             task_type="agent_chat",
-            model_name="mock" if settings.llm_provider == "mock" else settings.llm_model,
+            model_name=settings.effective_llm_model,
             input_json={"question": body.question, "top_k": body.top_k},
             output_json={
                 "answer": answer,
@@ -259,8 +267,9 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
                 "stop_reason": stop_reason,
                 **total_usage,
             },
-            status="success",
+            status=run_status,
             latency_ms=total_ms,
+            error_message=run_error,
         )
     )
     for record in search_records:
@@ -287,6 +296,13 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
             )
         )
     db.commit()
+
+    if run_status == "error":
+        # 軌跡已落地，再對外回 500（與 /chat 一致）。
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=run_error or "agent provider error",
+        )
 
     return ChatResponse(answer=answer, citations=citations)
 

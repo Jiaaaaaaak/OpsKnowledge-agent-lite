@@ -71,6 +71,16 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = "bge-m3"
     ollama_timeout_seconds: float = 180.0
 
+    @property
+    def effective_llm_model(self) -> str:
+        """實際使用的 LLM 模型名稱（依 provider 解析），供稽核紀錄正確標示。
+        Ollama 模式實際用 ollama_model，不能一律記成 openai 的 llm_model。"""
+        if self.llm_provider == "mock":
+            return "mock"
+        if self.llm_provider == "ollama":
+            return self.ollama_model
+        return self.llm_model
+
     # Reranker（第二階段 cross-encoder，經 HF text-embeddings-inference 提供）
     # 預設關閉：關閉時走單階段向量檢索，不需額外容器。
     reranker_enabled: bool = False

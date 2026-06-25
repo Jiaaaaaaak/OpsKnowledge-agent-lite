@@ -97,7 +97,7 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
             id=agent_run_id,
             project_id=project_id,
             task_type="rag_chat",
-            model_name="mock" if settings.llm_provider == "mock" else settings.llm_model,
+            model_name=settings.effective_llm_model,
             input_json={"question": body.question, "top_k": body.top_k},
             output_json={"answer": answer, "citation_count": len(citations), "llm_ms": llm_ms, **usage},
             status=llm_status,

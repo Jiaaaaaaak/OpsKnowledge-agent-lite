@@ -233,6 +233,60 @@ def test_agent_project_not_found_raises_404() -> None:
             assert exc.status_code == 404
 
 
+def test_agent_provider_failure_is_audited_before_500() -> None:
+    # provider 中途壞掉：仍須落地 AgentRun(status=error) + 已蒐集的 search 軌跡，再回 500。
+    # 否則這類失敗不進稽核，可觀測性會有破口。
+    from fastapi import HTTPException
+
+    project_id = uuid.uuid4()
+    db = _make_db(project_id)
+
+    class _FailAfterSearch:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        def complete_with_tools(self, messages, tools):
+            self._calls += 1
+            if self._calls == 1:
+                return AgentLLMResponse(content=None, tool_calls=[
+                    AgentToolCall("c0", "search_documents", {"query": "q", "strategy": "hybrid"}),
+                ])
+            raise RuntimeError("ollama connection refused")
+
+        def complete(self, system_prompt, user_message):
+            return user_message, {}
+
+    with patch("app.services.agent_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.agent_service.get_llm_provider", return_value=_FailAfterSearch()):
+        mock_retrieval.return_value.search.return_value = ([_hit("c1", "x")], _breakdown([]))
+        try:
+            run_agent_chat(project_id, ChatRequest(question="how do I restart?", top_k=5), db)
+            assert False, "should have raised 500"
+        except HTTPException as exc:
+            assert exc.status_code == 500
+
+    run = _agent_run(db)
+    assert run.status == "error"
+    assert "ollama connection refused" in (run.error_message or "")
+    # 失敗前已完成的檢索仍記入軌跡。
+    assert [t.tool_name for t in _tool_calls(db)] == ["search_documents"]
+    db.commit.assert_called_once()
+
+
+def test_agent_run_records_ollama_model_name() -> None:
+    # Ollama 模式的稽核 model_name 必須是 ollama_model，不能誤記成 openai 的 llm_model。
+    project_id = uuid.uuid4()
+    db = _make_db(project_id)
+
+    with patch.object(settings, "llm_provider", "ollama"), \
+         patch.object(settings, "ollama_model", "qwen2.5:7b-instruct"), \
+         patch("app.services.agent_service.get_retrieval_service"), \
+         patch("app.services.agent_service.get_llm_provider", return_value=MockLLMProvider()):
+        run_agent_chat(project_id, ChatRequest(question="你好", top_k=5), db)
+
+    assert _agent_run(db).model_name == "qwen2.5:7b-instruct"
+
+
 # ─────────────────────────────────────────────────────────────
 # 強制接地：非閒聊不得跳過檢索
 # ─────────────────────────────────────────────────────────────
