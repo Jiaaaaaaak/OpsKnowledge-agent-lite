@@ -86,6 +86,34 @@ def upgrade() -> None:
         ON document_chunks USING gin (search_vector)
         """
     )
+    # Repair path for existing databases created before Alembic adoption:
+    # CREATE TABLE IF NOT EXISTS is a no-op when the table already exists, so explicitly
+    # add the pgvector / FTS columns and indexes that retrieval requires.
+    op.execute(
+        f"""
+        ALTER TABLE document_chunks
+        ADD COLUMN IF NOT EXISTS embedding vector({_DIM})
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE document_chunks
+        ADD COLUMN IF NOT EXISTS search_vector tsvector
+        GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw
+        ON document_chunks USING hnsw (embedding vector_cosine_ops)
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_document_chunks_search_vector_gin
+        ON document_chunks USING gin (search_vector)
+        """
+    )
 
     op.execute(
         """

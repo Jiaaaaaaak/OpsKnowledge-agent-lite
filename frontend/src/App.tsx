@@ -14,6 +14,7 @@ function App() {
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectPage />} />
+            <Route path="document-upload" element={<Navigate to="/knowledge/workflow" replace />} />
             <Route path="knowledge/workflow" element={<KnowledgeWorkflowPage />} />
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="status" element={<SystemStatusPage />} />
