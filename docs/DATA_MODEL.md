@@ -49,7 +49,7 @@ Uploaded PDF metadata and server-side source path.
 | filename | VARCHAR(255) | Original filename |
 | document_type | VARCHAR(100) | Currently `pdf` |
 | source_path | TEXT | File path under `data/uploads/` |
-| metadata | JSONB | Page count and ingestion metadata |
+| metadata | JSONB | Ingestion metadata: `page_count`, `ocr_page_count` (pages recovered via OCR) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
@@ -83,13 +83,15 @@ Indexes:
 
 ### `agent_runs`
 
-One row per AI interaction. RAG chat writes `task_type="rag_chat"`.
+One row per AI interaction. RAG chat (`/chat`) writes `task_type="rag_chat"`; the
+autonomous agent (`/agent-chat`) writes `task_type="agent_chat"` (its `output_json` also
+includes `search_count` and `stop_reason`).
 
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
 | project_id | UUID FK → projects | Nullable, SET NULL |
-| task_type | VARCHAR(255) | e.g. `rag_chat` |
+| task_type | VARCHAR(255) | `rag_chat` or `agent_chat` |
 | model_name | VARCHAR(255) | LLM model or `mock` |
 | input_json | JSONB | Request payload summary |
 | output_json | JSONB | Answer metadata, usage, timings |
@@ -111,7 +113,7 @@ Detailed tool-level trace for each agent run.
 |---|---|---|
 | id | UUID PK | |
 | agent_run_id | UUID FK → agent_runs | CASCADE |
-| tool_name | VARCHAR(255) | `hybrid_search`, optional `rerank` |
+| tool_name | VARCHAR(255) | `/chat`: `hybrid_search`, optional `rerank`; `/agent-chat`: `search_documents`; either: optional `translate` (cross-lingual snippets) |
 | input_json | JSONB | Tool input |
 | output_json | JSONB | Tool output and counts |
 | error_message | TEXT | Nullable |

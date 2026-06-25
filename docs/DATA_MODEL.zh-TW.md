@@ -49,7 +49,7 @@ erDiagram
 | filename | VARCHAR(255) | 原始檔名 |
 | document_type | VARCHAR(100) | 目前為 `pdf` |
 | source_path | TEXT | `data/uploads/` 底下的檔案路徑 |
-| metadata | JSONB | 頁數與 ingestion metadata |
+| metadata | JSONB | ingestion metadata：`page_count`、`ocr_page_count`（經 OCR 補回文字的頁數） |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
@@ -82,13 +82,15 @@ erDiagram
 
 ### `agent_runs`
 
-每次 AI 互動一筆紀錄。RAG chat 會寫入 `task_type="rag_chat"`。
+每次 AI 互動一筆紀錄。RAG chat（`/chat`）寫入 `task_type="rag_chat"`；自主 agent
+（`/agent-chat`）寫入 `task_type="agent_chat"`（其 `output_json` 另含 `search_count`
+與 `stop_reason`）。
 
 | 欄位 | 型別 | 備註 |
 |---|---|---|
 | id | UUID PK | |
 | project_id | UUID FK → projects | nullable，SET NULL |
-| task_type | VARCHAR(255) | 例如 `rag_chat` |
+| task_type | VARCHAR(255) | `rag_chat` 或 `agent_chat` |
 | model_name | VARCHAR(255) | LLM model 或 `mock` |
 | input_json | JSONB | request payload 摘要 |
 | output_json | JSONB | answer metadata、usage、timings |
@@ -110,7 +112,7 @@ erDiagram
 |---|---|---|
 | id | UUID PK | |
 | agent_run_id | UUID FK → agent_runs | CASCADE |
-| tool_name | VARCHAR(255) | `hybrid_search`，選用 `rerank` |
+| tool_name | VARCHAR(255) | `/chat`：`hybrid_search`、選用 `rerank`；`/agent-chat`：`search_documents`；兩者皆可能有選用的 `translate`（跨語 snippet） |
 | input_json | JSONB | 工具輸入 |
 | output_json | JSONB | 工具輸出與計數 |
 | error_message | TEXT | nullable |

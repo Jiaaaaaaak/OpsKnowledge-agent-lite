@@ -8,10 +8,11 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 
 ## Setup (before demo, ~1 min — not counted in demo time)
 
-1. `cp .env.example .env` — defaults to Ollama LLM + mock embeddings.
+1. `cp .env.example .env` — defaults to Ollama for both the LLM and multilingual embeddings.
 2. `docker compose up --build -d` — wait until `opsknowledge_backend` reports
    `Uvicorn running on http://0.0.0.0:8000`.
-3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` — pull the local model.
+3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` and
+   `docker compose exec ollama ollama pull bge-m3` — pull the local LLM and embedding models.
 4. Smoke check: `curl http://localhost:8000/health` → `{"db":"connected","vector":"connected"}`.
 5. Open `http://localhost:8501` in browser.
 6. Have ready:
@@ -53,6 +54,14 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 > Talking point: "Every chat call writes one `agent_runs` row and one
 > `tool_calls` row for the vector retrieval — fully auditable."
 
+> Optional (cross-lingual): ask the same question in Chinese against an English SOP —
+> the answer comes back in Traditional Chinese and each citation shows the original
+> English snippet plus a translated one (multilingual bge-m3 embeddings).
+
+> Optional (agent mode): the `/agent-chat` endpoint lets the LLM itself decide whether
+> to retrieve, what to query, how many times, and which strategy (hybrid / keyword /
+> vector); it logs `task_type="agent_chat"` with one `search_documents` tool call per search.
+
 ### Scene 4 · Agent Runs / Observability (30s)
 
 > "Here's how I prove what the agent actually did. Every run is queryable."
@@ -77,7 +86,7 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 
 > "One last thing — the LLM and embedding providers are fully pluggable."
 
-- Show `.env` file: `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock`.
+- Show `.env` file: `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=ollama` (bge-m3).
 - Explain: switch to `openai` or `mock` by changing `.env` only, no code changes.
 
 ---
@@ -85,13 +94,19 @@ Total demo time: **~3 minutes** (tight script) / ~5 minutes (full walkthrough).
 ## Talking Points (use any if questions arise)
 
 - **Local-first LLMProvider abstraction** — default interview mode is
-  `LLM_PROVIDER=ollama` with `EMBEDDING_PROVIDER=mock`. The same UI can still switch
-  to hosted OpenAI or fully deterministic mock providers with `.env` only.
+  `LLM_PROVIDER=ollama` with `EMBEDDING_PROVIDER=ollama` (bge-m3). The same UI can still
+  switch to hosted OpenAI or fully deterministic mock providers with `.env` only.
 - **Pydantic at the LLM boundary** — every structured output is validated; failures
   are surfaced into `tool_calls.error_message`, not silently swallowed (Rule 12).
 - **Observability read/write split** — workflow-status endpoint never calls the LLM. Fast,
   deterministic, safe to auto-refresh.
 - **Provider switchability** — `mock`, `ollama`, `openai` — one `.env` change, no code change.
+- **Two Q&A modes** — `/chat` (fixed hybrid → optional rerank → answer) vs `/agent-chat`
+  (autonomous tool-calling agent choosing strategy and number of searches, capped by `AGENT_MAX_STEPS`).
+- **Multilingual + Traditional Chinese** — bge-m3 enables cross-lingual retrieval; answers
+  and zh translations are normalized to Traditional Chinese (OpenCC `s2twp`).
+- **Multimodal ingestion** — scanned / image PDF pages fall back to Tesseract OCR; degrades
+  gracefully when tesseract/poppler are absent.
 
 ---
 

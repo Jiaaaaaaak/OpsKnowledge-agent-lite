@@ -14,8 +14,9 @@ graph TD
 
     subgraph Backend["Backend (FastAPI :8000)"]
         API[REST API Layer]
-        SVC_DOC[Document Service]
-        SVC_CHAT[Chat Service]
+        SVC_DOC[Document Service\n(+ OCR fallback)]
+        SVC_CHAT[Chat Service\n(/chat)]
+        SVC_AGENT[Agent Service\n(/agent-chat)]
         SVC_LOG[Observability Service]
         LLM[LLMProvider\n(OpenAI / Ollama)]
     end
@@ -30,12 +31,15 @@ graph TD
 
     API --> SVC_DOC
     API --> SVC_CHAT
+    API --> SVC_AGENT
     API --> SVC_LOG
 
     SVC_DOC --> PGVECTOR
     SVC_DOC --> LLM
     SVC_CHAT --> LLM
     SVC_CHAT --> PGVECTOR
+    SVC_AGENT --> LLM
+    SVC_AGENT --> PGVECTOR
     SVC_LOG --> PGVECTOR
 ```
 
@@ -44,13 +48,16 @@ graph TD
 | 元件 | 職責 |
 |---|---|
 | `api/` | 路由定義、請求驗證、回應序列化 |
-| `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 PostgreSQL + pgvector（透過注入的 `VectorStoreService`） |
+| `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 PostgreSQL + pgvector（透過注入的 `VectorStoreService`）；對掃描 / 影像頁有 OCR fallback |
+| `services/ocr_service.py` | 對「可抽取文字過少」的頁做 Tesseract OCR；lazy-import `pytesseract`/`pdf2image`，缺少時自動降級 |
 | `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
 | `services/vector_store.py` | 封裝 PostgreSQL + pgvector 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
 | `services/retrieval/` | 模組化 hybrid retrieval：pgvector 語意召回、PostgreSQL full-text 召回、reciprocal-rank fusion |
 | `services/reranker_service.py` | 選用第二階段 cross-encoder reranker，用於重排 fusion 後的候選 chunk |
 | `services/llm_service.py` | `LLMProvider` 介面與 `OpenAICompatibleLLMProvider`；`build_rag_prompt` 和 `format_citations` 純函式 |
-| `services/chat_service.py` | RAG 問答：檢索 → 提示 → LLM → 引用來源 |
+| `services/chat_service.py` | RAG 問答（`/chat`）：檢索 → 提示 → LLM → 引用來源（固定流程） |
+| `services/agent_service.py` | 自主 agent 問答（`/agent-chat`）：由 LLM 透過 `search_documents` 工具決定要不要查、查什麼、查幾次、用哪種策略，以 `AGENT_MAX_STEPS` 作上限 |
+| `services/retrieval/service.py` | `HybridRetrievalService.search(..., strategy)`，strategy ∈ `hybrid`（預設）/ `keyword` / `vector` |
 | `models/agent.py` | `agent_runs` 與 `tool_calls` persistence models，供 chat 與觀測路由使用 |
 | `db/session.py` | SQLAlchemy engine、session factory、`get_db` 相依注入 |
 | `core/config.py` | 透過環境變數集中管理所有設定（Pydantic Settings） |
@@ -65,12 +72,15 @@ POST /projects/{id}/upload/documents
   │
   ├─ 副檔名驗證（.pdf only）
   │
-  ├─ _extract_pages()  pypdf.PdfReader → [(page_num, text), ...]
-  │    └─ 非文字 PDF（掃描圖檔）→ 400 Bad Request
+  ├─ _extract_pages_with_ocr()  pypdf.PdfReader → [(page_num, text), ...]
+  │    ├─ 可抽取文字 < OCR_MIN_CHARS 的頁 → 渲染 + Tesseract OCR
+  │    │    （chi_tra+chi_sim+eng，正規化為繁體中文）；OCR_ENABLED=false 或缺 tesseract/poppler 時略過
+  │    └─ OCR 後仍無文字 → 400 Bad Request
   │
   ├─ _save_file()  寫入 data/uploads/{project_id}/documents/{filename}
   │
-  ├─ documents INSERT（filename, document_type="pdf", source_path, metadata.page_count）
+  ├─ documents INSERT（filename, document_type="pdf", source_path,
+  │    metadata.{page_count, ocr_page_count}）
   │
   ├─ 逐頁 _chunk_text()  滑動視窗（chunk_size=1000, overlap=150）
   │    └─ 每個 chunk（明確指定 uuid）→ document_chunks INSERT
@@ -79,10 +89,11 @@ POST /projects/{id}/upload/documents
   ├─ VectorStoreService.add_chunks()  嵌入所有 chunk → PostgreSQL + pgvector upsert
   │    ├─ id = document_chunks.id（PG 與 PostgreSQL + pgvector 使用相同 UUID）
   │    ├─ metadata: { project_id, document_id, chunk_id, filename, chunk_index }
+  │    ├─ 寫 embedding 前先 flush chunk 列（讓 content + embedding 原子寫入）
   │    └─ 在 db.commit() 之前執行 — embedding 失敗即中止上傳（不留下半套資料）
   │
   └─ 回傳 DocumentIngestionResult
-       { document_id, filename, page_count, chunk_count, source_path }
+       { document_id, filename, page_count, chunk_count, source_path, ocr_page_count }
 
 GET /projects/{id}/search?query=...&top_k=5
   └─ HybridRetrievalService.search(project_id, query, top_k)
@@ -110,18 +121,45 @@ POST /projects/{id}/chat  { question, top_k }
   ├─ build_rag_prompt(hits)
   │    └─ 編號 context 區塊 + 幻覺防護規則
   │
-  ├─ OpenAICompatibleLLMProvider.complete(system_prompt, question)
-  │    └─ temperature=0.1，model 由 LLM_MODEL 環境變數決定
+  ├─ LLMProvider.complete(system_prompt, question)
+  │    ├─ temperature=0.1，model 由 LLM_MODEL 環境變數決定
+  │    └─ 答案正規化為繁體中文（OpenCC s2twp）
   │
   ├─ format_citations(hits)
-  │    └─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 字元) }
+  │    ├─ { document_id, chunk_id, filename, chunk_index, snippet(≤200 字元),
+  │    │    source_language, snippet_translated }
+  │    └─ 跨語 snippet（chunk 語言 ≠ 提問語言）翻成提問語言；同語言 → snippet_translated=null
   │
   ├─ AgentRun INSERT（task_type="rag_chat", status, latency_ms, input_json, output_json）
   │    ├─ ToolCall INSERT（tool_name="hybrid_search", vector/keyword/fused counts, chunk_ids）
-  │    └─ 選用 ToolCall INSERT（tool_name="rerank", status, returned）
+  │    ├─ 選用 ToolCall INSERT（tool_name="rerank", status, returned）
+  │    └─ 選用 ToolCall INSERT（tool_name="translate", translated/failed counts）
   │
   └─ 回傳 ChatResponse  { answer, citations[] }
        citations 透過 chunk_id == document_chunks.id 對回 PostgreSQL
+```
+
+### Agent Chat
+
+```
+POST /projects/{id}/agent-chat  { question, top_k }
+  │
+  ├─ Project 404 防護
+  │
+  ├─ Agent 迴圈（≤ AGENT_MAX_STEPS）：LLMProvider.complete_with_tools(messages, [search_documents])
+  │    ├─ 由 LLM 決定：直接作答，或呼叫 search_documents(query, strategy)
+  │    │    strategy ∈ hybrid（預設）/ keyword（精確詞）/ vector（語意題）
+  │    ├─ 每次呼叫 → HybridRetrievalService.search(..., strategy)；hits 餵回 LLM
+  │    └─ LLM 作答即結束（stop_reason="completed"），或達到上限
+  │         （stop_reason="max_steps"，強制以已取得結果作答）
+  │
+  ├─ 答案正規化為繁體中文；引用跨多次檢索去重後，再翻譯跨語 snippet（同 /chat）
+  │
+  ├─ AgentRun INSERT（task_type="agent_chat"；output_json 含 search_count, stop_reason）
+  │    ├─ 每次檢索一筆 ToolCall INSERT（tool_name="search_documents", input {query, strategy}）
+  │    └─ 選用 ToolCall INSERT（tool_name="translate"）
+  │
+  └─ 回傳 ChatResponse  { answer, citations[] }（shape 與 /chat 相同）
 ```
 
 ## 連接埠對應
@@ -167,6 +205,11 @@ class MockLLMProvider(LLMProvider):
 **切換 provider 只需修改 `.env`**（`LLM_PROVIDER`，再加上對應的 `OPENAI_*` 或
 `OLLAMA_*` 設定）。新增 provider 只需實作 `complete()` 並在 `get_llm_provider()`
 中註冊。
+
+`/agent-chat` 另需 provider 實作 `complete_with_tools(messages, tools)`（tool-calling），
+供 agent 迴圈使用。`MockLLMProvider` 會回傳確定性的 tool-call，讓 agent 流程在 CI 不需
+真實模型即可跑完。LLM 輸出的簡體中文（答案與 `zh` 翻譯）會以 OpenCC `s2twp` 正規化為
+繁體中文（台灣）。
 
 > **雲端 vs 地端的範圍：** `openai` 路徑用於低設定成本的快速 POC；`ollama` 路徑則為
 > 私有／地端情境預備好，讓 LLM 能在客戶網路內執行。注意目前這層抽象只涵蓋 **LLM**，

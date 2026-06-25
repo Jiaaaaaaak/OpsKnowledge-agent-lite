@@ -22,7 +22,10 @@ IT／維運團隊需管理大量技術文件（手冊、SOP），但面臨以下
 ### 包含項目
 
 - [x] 上傳 PDF 文件 → 解析 → 分塊 → 嵌入 → 存入 PostgreSQL + pgvector
-- [x] 對文件進行 hybrid search / 附引用來源的 RAG 問答
+- [x] 掃描 / 影像型 PDF 的 OCR fallback（Tesseract，正規化為繁體中文）
+- [x] 對文件進行 hybrid search / 附引用來源的 RAG 問答（`/chat`，固定流程）
+- [x] 自主 tool-calling agent 問答（`/agent-chat`）：由 LLM 決定要不要查、查什麼、查幾次、用哪種策略
+- [x] 多語 / 跨語檢索（bge-m3）：英文文件可回答中文提問；答案正規化為繁體中文並附翻譯後的引用 snippet
 - [x] 將每次 AI 呼叫記錄至 PostgreSQL（模型、tokens、延遲、結果）
 - [x] React 引導式流程 UI：Upload → 確認 → Chat → 檢視
 - [x] Docker Compose 部署（PostgreSQL、PostgreSQL + pgvector、backend、frontend）
@@ -55,13 +58,14 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
 | 後端 | FastAPI、Uvicorn、SQLAlchemy、Pydantic / pydantic-settings |
 | 後端測試 | pytest |
 | 資料庫 | PostgreSQL 16 + pgvector（`vector(1024)`） |
-| LLM／嵌入 | 可插拔 provider：`mock` / `ollama` / `openai`；地端預設＝Ollama（`qwen2.5:7b-instruct`）作為 LLM ＋ mock 嵌入（維度 1024） |
-| 封裝／部署 | Docker Compose（postgres、ollama、backend、frontend） |
+| LLM／嵌入 | 可插拔 provider：`mock` / `ollama` / `openai`；地端預設＝Ollama（`qwen2.5:7b-instruct`）作為 LLM ＋ 多語 `bge-m3` 嵌入（維度 1024） |
+| 文件匯入 | pypdf 文字抽取，對掃描頁有 Tesseract OCR fallback（`chi_tra+chi_sim+eng`）；以 OpenCC `s2twp` 正規化為繁體中文 |
+| 封裝／部署 | Docker Compose（postgres、ollama、backend、frontend）；backend image 內建 `tesseract-ocr` ＋ `poppler-utils` |
 | 可觀測性 | `agent_runs` ＋ `tool_calls` 稽核紀錄 |
 
 - **服務埠（host → container）：** 前端 `8501`、後端 `8000`、PostgreSQL `5432`、Ollama `11434`。
-- **後端 API 範圍：** `health`、`projects`、`documents`、`chat`、`dashboard`（workflow-status、agent-runs、tool-calls）。
-- **AI provider 模型：** `EMBEDDING_PROVIDER` 與 `LLM_PROVIDER` 可各自獨立選擇 `mock`、`ollama` 或 `openai`。內建預設完全離線（`mock`）；專案附帶的 `.env.example` 則以 Ollama 作 LLM、mock 作嵌入，呈現私有／地端風格的展示。
+- **後端 API 範圍：** `health`、`projects`、`documents`、`chat`（`/chat` ＋ `/agent-chat`）、`dashboard`（workflow-status、agent-runs、tool-calls）。
+- **AI provider 模型：** `EMBEDDING_PROVIDER` 與 `LLM_PROVIDER` 可各自獨立選擇 `mock`、`ollama` 或 `openai`。內建程式預設完全離線（`mock`）；專案附帶的 `.env.example` 則以 Ollama 作 LLM（`qwen2.5:7b-instruct`）與多語嵌入（`bge-m3`），呈現私有／地端風格的展示。
 
 ## 系統架構圖
 
@@ -74,9 +78,10 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
                              ▼
 ┌──────────────────────────────────────────────────────────┐
 │ 後端 — FastAPI   (:8000)                                 │
-│ 路由 ： /health /projects /documents /chat              │
+│ 路由 ： /health /projects /documents /chat /agent-chat   │
 │         /workflow-status /agent-runs /tool-calls        │
-│ 服務 ： document · retrieval · vector_store · chat · llm │
+│ 服務 ： document · ocr · retrieval · vector_store ·      │
+│         chat · agent · llm                              │
 └──────────────────────────────────────────────────────────┘
                          │                                         │
                          │ SQLAlchemy                               provider：mock/Ollama/OpenAI
@@ -98,6 +103,6 @@ OpsKnowledge Agent Lite 是一套容器化的全端應用。React 單頁應用�
 flowchart TD
     P([選擇 / 建立專案]) --> UP["上傳 PDF 文件"]
     UP -->|"分塊 ＋ 嵌入 → pgvector"| IDX["知識庫就緒"]
-    IDX --> ASK["RAG 對話<br/>附引用來源的回答"]
+    IDX --> ASK["RAG 對話（/chat）或<br/>自主 agent（/agent-chat）<br/>附引用來源的回答"]
     ASK --> OBS["Agent 執行紀錄 / Tool Calls<br/>檢索可觀測性"]
 ```

@@ -2,7 +2,7 @@
 
 [English](README.md) | 繁體中文
 
-OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG 知識庫系統。它能匯入 PDF SOP 與技術手冊，切塊並嵌入 PostgreSQL + pgvector，透過附引用來源的 RAG 回答維運問題，並記錄 AI 執行過程以利稽核。
+OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG 知識庫系統。它能匯入 PDF SOP 與技術手冊（對掃描頁有 OCR fallback），切塊並嵌入 PostgreSQL + pgvector，透過附引用來源的 RAG 回答維運問題 — 可使用固定流程的 `/chat`，或由 LLM 自主決策的 tool-calling agent `/agent-chat` — 並記錄 AI 執行過程以利稽核。多語 embedding（bge-m3）支援跨語檢索，答案統一正規化為繁體中文。
 
 ## 語言說明 / Language
 
@@ -26,8 +26,10 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 
 | 能力 | 說明 |
 |---|---|
-| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、建立 PostgreSQL full-text + pgvector 索引 |
-| RAG 問答 | 提出維運問題 → hybrid search → 選用 rerank → LLM 附引用來源回答 |
+| 文件 RAG | 上傳 PDF 手冊／SOP → 切塊、嵌入、建立 PostgreSQL full-text + pgvector 索引；OCR fallback（Tesseract）補回掃描 / 影像頁 |
+| RAG 問答（`/chat`） | 提出維運問題 → hybrid search → 選用 rerank → LLM 附引用來源回答（固定流程） |
+| Agent 問答（`/agent-chat`） | 自主 tool-calling agent：由 LLM 決定要不要查、查什麼、查幾次、用哪種策略（hybrid / keyword / vector），以 `AGENT_MAX_STEPS` 為上限 |
+| 多語 / 跨語 | bge-m3 embedding 讓中文提問可查英文文件；答案正規化為繁體中文，並附翻譯後的引用 snippet |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
 | UI | React 引導式流程，涵蓋上傳、問答與 Agent 執行紀錄檢視 |
 
@@ -36,7 +38,8 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 - **後端**：Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2
 - **資料庫**：PostgreSQL 16
 - **向量資料庫**：PostgreSQL + pgvector
-- **AI**：相容 OpenAI 介面（可切換至 Ollama）
+- **AI**：相容 OpenAI 介面（可切換至 Ollama）；多語 `bge-m3` embedding
+- **文件匯入**：pypdf + Tesseract OCR fallback（`poppler-utils`）、OpenCC `s2twp` 簡轉繁正規化
 - **前端**：React (Vite + TypeScript + Tailwind CSS)
 - **基礎設施**：Docker Compose
 
@@ -44,10 +47,10 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 
 四個步驟，除 `.env` 外不需任何手動設定：
 
-預設面試／展示路線是地端優先：Ollama 負責 LLM，mock 1024 維 embedding 負責 pgvector 搜尋。
+預設面試／展示路線是地端優先：Ollama 同時負責 LLM（`qwen2.5:7b-instruct`）與多語 `bge-m3` embedding（1024 維）做 pgvector 搜尋。
 
 ```bash
-# 1. 複製 env 範本（預設 Ollama LLM + mock embedding）
+# 1. 複製 env 範本（預設 Ollama 同時作為 LLM 與 embedding）
 cp .env.example .env
 
 # 2.（選用）若要使用真實模型，編輯 .env
@@ -59,8 +62,8 @@ docker compose up --build -d
 # 或用內附的 Makefile：
 make up
 
-# 4. 將地端模型下載進 ollama_data volume
-make pull-ollama
+# 4. 將地端 LLM + embedding 模型下載進 ollama_data volume
+make pull-ollama   # 下載 qwen2.5:7b-instruct 與 bge-m3
 
 # 5. 開啟 UI
 #    前端（React）：http://localhost:8501
@@ -111,7 +114,7 @@ make logs-ollama  # tail Ollama logs
 make ps           # 看 container 狀態
 make health       # curl /health 並 pretty-print
 make test         # 在 backend 容器內跑 pytest
-make pull-ollama  # 將預設地端 LLM 模型下載進 ollama_data
+make pull-ollama  # 將地端 LLM + bge-m3 embedding 模型下載進 ollama_data
 make psql         # 開 postgres 容器的 psql shell
 make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 ```
@@ -120,17 +123,17 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 
 | 模式 | 環境變數 | API key | 說明 |
 |---|---|---|---|
-| **ollama-local**（預設） | `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock` | 不需要 | 地端 Ollama 回答 + 確定性 1024 維 embedding 寫入 pgvector |
+| **ollama-local**（預設） | `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=ollama` | 不需要 | 地端 Ollama 回答 + 多語 `bge-m3` 1024 維 embedding，支援跨語 pgvector 搜尋 |
 | **mock** | `EMBEDDING_PROVIDER=mock`、`LLM_PROVIDER=mock` | 不需要 — `OPENAI_API_KEY` 可留空 | 完全確定性的離線 provider；適合測試 |
 | **openai** | `EMBEDDING_PROVIDER=openai`、`LLM_PROVIDER=openai` | 需要有效的 `OPENAI_API_KEY` | hosted LLM + OpenAI 相容 embedding；embedding 會要求 1024 維 |
 
-> **面試展示採地端優先。** 主要路線使用 `ollama` 回答、`mock` embedding 做穩定的
-> 本地向量搜尋。需要 hosted model 品質時仍可切到 `openai`。切換只需修改 `.env`，
-> 不需更動應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
+> **面試展示採地端優先。** 主要路線使用 `ollama` 回答與多語 `bge-m3` embedding；
+> 需要 hosted model 品質時仍可切到 `openai`，`mock` 則提供完全確定性的離線執行。
+> 切換只需修改 `.env`，不需更動應用程式碼。詳見下方[本地模型 provider（Ollama）](#本地模型-providerollama)。
 
 ### 從地端 Ollama 模式切換到 OpenAI
 
-系統預設以 **Ollama LLM + mock embedding** 出貨。要接上真正的 OpenAI 相容 API：
+系統預設以 **Ollama LLM + Ollama（bge-m3）embedding** 出貨。要接上真正的 OpenAI 相容 API：
 
 1. 在專案根目錄 `.env`（即 `cp .env.example .env` 建立的那份）設定 provider 與金鑰
    （model／base URL 已有預設值）。設定已錨定到這份根目錄 `.env`，不論從哪個目錄啟動都會讀到：
@@ -155,7 +158,8 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
    失敗時以非 0 結束碼結束，可用於 CI；金鑰缺漏或無效時會回傳清楚的錯誤。
 
 > `EMBEDDING_DIMENSIONS=1024` 很重要，因為 pgvector 欄位是 `vector(1024)`。
-> 切回地端展示模式則是：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`。
+> 切回地端展示模式則是：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=ollama`
+> （或 `EMBEDDING_PROVIDER=mock` 取得確定性的離線向量）。
 
 ### 主機名稱：Docker vs 本機
 
@@ -177,7 +181,7 @@ make clean        # ⚠️ 停 stack + 刪 volume（會問確認）
 | `MockLLMProvider` | `LLM_PROVIDER=mock` | 從 retrieved context 擷取片段，回傳帶 `[mock]` 前綴的答案 |
 
 ```bash
-# .env — 這是 .env.example 的預設，不需要編輯：
+# .env — 把兩個 provider 都改成 mock（.env.example 預設為 ollama）：
 EMBEDDING_PROVIDER=mock
 LLM_PROVIDER=mock
 # OPENAI_API_KEY 留空 — mock 模式下會被忽略
@@ -246,22 +250,25 @@ OLLAMA_BASE_URL=http://localhost:11434
 # Docker Compose 會在 backend 容器內使用內建 ollama service。
 DOCKER_OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
-# embedding 與 LLM 獨立 — 可維持 EMBEDDING_PROVIDER=mock（離線）或 =openai
-EMBEDDING_PROVIDER=mock
+# embedding 與 LLM 獨立 — 預設使用 Ollama bge-m3（多語、跨語）；
+# 也可改 EMBEDDING_PROVIDER=mock（確定性離線）或 =openai
+EMBEDDING_PROVIDER=ollama
+OLLAMA_EMBEDDING_MODEL=bge-m3
 
-# 2. 啟動 compose，並把模型下載進 ollama_data volume
+# 2. 啟動 compose，並把 LLM + embedding 模型下載進 ollama_data volume
 docker compose up -d ollama
 docker compose exec ollama ollama pull qwen2.5:7b-instruct
+docker compose exec ollama ollama pull bge-m3
 ```
 
 這是唯一需要的改動 — 不需更動任何應用程式碼。若 Ollama 伺服器無法連線，`/chat`
 會以明確錯誤回應（例如 *「無法連線到 Ollama … 請確認 Ollama 服務已啟動」*），
 而不是卡住或回傳捏造的答案。
 
-> **範圍：** 這個 provider 只涵蓋 **LLM**。embedding 仍由 `EMBEDDING_PROVIDER`
-> （`openai` / `mock`）選擇。要做到完全地端，還需要一個本地 embedding provider —
-> `EmbeddingProvider` 介面支援以相同方式新增。面試展示建議維持
-> `LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`：可展示地端模型操作，同時讓向量搜尋穩定且相依較少。
+> **範圍：** 這個 provider 涵蓋 **LLM**。embedding 由 `EMBEDDING_PROVIDER`
+> （`ollama` / `openai` / `mock`）獨立選擇；預設的 `ollama` 路線使用地端多語 `bge-m3`
+> 模型，構成完全地端、資料不離開主機的 on-prem 風格堆疊。需要確定性、相依較少的向量
+> 搜尋（如 CI）時可改用 `EMBEDDING_PROVIDER=mock`。
 
 ## 本機開發（不使用 Docker）
 
@@ -343,17 +350,23 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 #   "filename": "your_manual.pdf",
 #   "page_count": 24,
 #   "chunk_count": 87,
-#   "source_path": "data/uploads/.../your_manual.pdf"
+#   "source_path": "data/uploads/.../your_manual.pdf",
+#   "ocr_page_count": 0
 # }
 ```
+
+> **OCR fallback：** 對「可抽取文字過少」的頁（掃描 / 影像型 PDF）會渲染後以 Tesseract
+> OCR 辨識（`chi_tra+chi_sim+eng`，正規化為繁體中文）；`ocr_page_count` 回報有多少頁是
+> 經 OCR 補回的。由 `OCR_ENABLED` / `OCR_DPI` / `OCR_LANGUAGES` / `OCR_MIN_CHARS` 控制。
+> 缺少 `tesseract` / `poppler` 時自動降級（Docker backend image 內建兩者）。
 
 > **備註：** 請將公眾領域的手冊（例如開源 SOP PDF、RFC 文件）放入
 > `demo_data/documents/` 供 Demo 使用。此目錄下的檔案不會納入 git 追蹤。
 > 上傳的檔案會儲存於 `backend/data/uploads/`。
 
-> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 PostgreSQL + pgvector。地端 Ollama
-> 展示預設使用 mock embedding，不需要 API key。openai 模式則需要 `.env` 內設定有效的 `OPENAI_API_KEY`；未設定時上傳會以
-> 清楚的錯誤訊息失敗（不留下半套資料）。
+> **嵌入：** 上傳時每個 chunk 會被嵌入並索引至 PostgreSQL + pgvector。預設的 Ollama 模式
+> （多語 `bge-m3`）與 mock 模式皆不需要 API key。openai 模式則需要 `.env` 內設定有效的
+> `OPENAI_API_KEY`；未設定時上傳會以清楚的錯誤訊息失敗（不留下半套資料）。
 
 ## Chat（RAG 問答）
 
@@ -375,15 +388,39 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
 #       "chunk_id": "9b2c...",
 #       "filename": "docker_operations.pdf",
 #       "chunk_index": 3,
-#       "snippet": "Docker volumes persist data outside container lifecycle..."
+#       "snippet": "Docker volumes persist data outside container lifecycle...",
+#       "source_language": "en",
+#       "snippet_translated": "Docker volume 會把資料保存在容器生命週期之外...   # 中文提問時才會填入，否則為 null"
 #     }
 #   ]
 # }
 ```
 
 > **幻覺控制：** 模型被指示只根據已取回的 context 回答。若 context 不足，
-> 會以固定措辭回應而非捏造答案。每次請求皆寫入一筆 `agent_runs` 與一筆
-> `tool_calls`（retrieval 步驟）至 PostgreSQL，確保可稽核性。
+> 會以固定措辭回應而非捏造答案。每次請求皆寫入一筆 `agent_runs`（`task_type="rag_chat"`）
+> 與一筆 `tool_calls`（`tool_name="hybrid_search"`）至 PostgreSQL，確保可稽核性。
+
+> **跨語引用：** 每筆 citation 另帶 `source_language`（`"zh"`/`"en"`）與
+> `snippet_translated` — 當 chunk 語言與提問語言不同時，snippet 會被翻成提問語言（否則為
+> `null`）。有任何 snippet 被翻譯時會額外記錄一筆 `translate` tool call。
+
+## Agent 問答（自主 tool-calling）
+
+```bash
+# request / response shape 與 /chat 相同；由 LLM 自己驅動檢索。
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/agent-chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Which command resets the cache and what error code 4xx means?",
+    "top_k": 5
+  }'
+```
+
+不同於 `/chat` 的固定流程，`/agent-chat` 讓 LLM 透過單一 `search_documents(query, strategy)`
+工具自行決定要不要檢索、查什麼、查幾次、用哪種策略（`hybrid` 預設 / `keyword` 精確詞 /
+`vector` 語意題），最後再作答。整個迴圈以 `AGENT_MAX_STEPS` 為上限。它寫入一筆
+`agent_runs`（`task_type="agent_chat"`，含 `search_count` / `stop_reason`），並對每次檢索
+寫入一筆 `tool_calls`（`tool_name="search_documents"`，input 含 `query`/`strategy`）。
 
 ## 搜尋文件
 
@@ -525,10 +562,12 @@ ORDER BY ar.created_at DESC;
 
 - [x] 專案骨架、health 端點、Docker Compose
 - [x] PostgreSQL 資料模型（ORM 模型、Pydantic 結構、SQL 遷移）
-- [x] PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`）
+- [x] PDF 匯入 → RAG 流程（`POST /projects/{id}/upload/documents`），對掃描頁有 Tesseract OCR fallback
 - [x] 嵌入 + PostgreSQL + pgvector 向量儲存與搜尋（`GET /projects/{id}/search`）
-- [x] RAG chat API（`POST /projects/{id}/chat` — retrieval → LLM → 回答 + 引用）
-- [x] 可觀測性 — 每次 chat 請求都寫 `agent_runs` + `tool_calls`
+- [x] RAG chat API（`POST /projects/{id}/chat` — retrieval → 選用 rerank → LLM → 回答 + 引用）
+- [x] 自主 tool-calling agent（`POST /projects/{id}/agent-chat` — LLM 驅動檢索、策略選擇）
+- [x] 多語 / 跨語檢索（`bge-m3`）+ 繁體中文正規化 + 翻譯後的引用 snippet
+- [x] 可觀測性 — 每次 chat / agent 請求都寫 `agent_runs` + `tool_calls`
 - [x] React 引導式流程 UI（繁體中文，Vite + TypeScript + Tailwind CSS）
-- [x] 本地模型 provider（Ollama）— 原生 HTTP LLM provider，供私有／地端部署
-- [ ] 本地 embedding provider、其他 agent 工具
+- [x] 本地模型 provider（Ollama）— 原生 HTTP LLM + 多語 embedding provider，供私有／地端部署
+- [ ] 其他 agent 工具

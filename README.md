@@ -2,7 +2,7 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-An interview-ready RAG knowledge base for IT operations documents. It ingests PDF SOPs and manuals, chunks and embeds them into PostgreSQL + pgvector, answers operational questions with citations, and records AI runs for auditability.
+An interview-ready RAG knowledge base for IT operations documents. It ingests PDF SOPs and manuals (with OCR fallback for scanned pages), chunks and embeds them into PostgreSQL + pgvector, answers operational questions with citations — either via a fixed RAG pipeline (`/chat`) or an autonomous tool-calling agent (`/agent-chat`) — and records AI runs for auditability. Multilingual embeddings (bge-m3) enable cross-lingual retrieval, and answers are normalized to Traditional Chinese.
 
 ## Language / 語言說明
 
@@ -28,8 +28,10 @@ review internationally.
 
 | Capability | Description |
 |---|---|
-| Document RAG | Upload PDF manuals/SOPs → chunk, embed, index in PostgreSQL full-text + pgvector |
-| RAG Chat | Ask operational questions → hybrid search → optional rerank → LLM answer with citations |
+| Document RAG | Upload PDF manuals/SOPs → chunk, embed, index in PostgreSQL full-text + pgvector; OCR fallback (Tesseract) recovers scanned / image pages |
+| RAG Chat (`/chat`) | Ask operational questions → hybrid search → optional rerank → LLM answer with citations (fixed pipeline) |
+| Agent Chat (`/agent-chat`) | Autonomous tool-calling agent: the LLM decides whether/what/how-many-times to retrieve and which strategy (hybrid / keyword / vector), bounded by `AGENT_MAX_STEPS` |
+| Multilingual / cross-lingual | bge-m3 embeddings answer Chinese questions over English docs; answers normalized to Traditional Chinese, with translated citation snippets |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
 | UI | React guided workflow for uploads, Q&A, and agent run inspection |
 
@@ -38,17 +40,18 @@ review internationally.
 - **Backend**: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2
 - **Database**: PostgreSQL 16
 - **Vector DB**: PostgreSQL + pgvector
-- **AI**: OpenAI-compatible (swappable to Ollama)
+- **AI**: OpenAI-compatible (swappable to Ollama); multilingual `bge-m3` embeddings
+- **Document ingestion**: pypdf + Tesseract OCR fallback (`poppler-utils`), OpenCC `s2twp` Traditional-Chinese normalization
 - **Frontend**: React (Vite + TypeScript + Tailwind CSS)
 - **Infra**: Docker Compose
 
 ## Quick Start (Docker Compose)
 
-The default interview/demo path is local-first: Ollama for the LLM and mock
-1024-dim embeddings for pgvector search.
+The default interview/demo path is local-first: Ollama for both the LLM
+(`qwen2.5:7b-instruct`) and multilingual `bge-m3` embeddings (1024-dim) for pgvector search.
 
 ```bash
-# 1. Copy the env template (defaults to Ollama LLM + mock embeddings)
+# 1. Copy the env template (defaults to Ollama for the LLM and embeddings)
 cp .env.example .env
 
 # 2. (Optional) edit .env if you want real models
@@ -60,8 +63,8 @@ docker compose up --build -d
 # or, equivalently with the included Makefile:
 make up
 
-# 4. Pull the local LLM model into the ollama_data volume
-make pull-ollama
+# 4. Pull the local LLM + embedding models into the ollama_data volume
+make pull-ollama   # pulls qwen2.5:7b-instruct and bge-m3
 
 # 5. Open the UI
 #    Frontend (React):     http://localhost:8501
@@ -113,7 +116,7 @@ make logs-ollama  # tail Ollama logs
 make ps           # show container status
 make health       # curl /health and pretty-print
 make test         # run backend pytest inside the backend container
-make pull-ollama  # pull the default local LLM model into ollama_data
+make pull-ollama  # pull the local LLM + bge-m3 embedding models into ollama_data
 make psql         # open a psql shell against the postgres container
 make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 ```
@@ -122,20 +125,20 @@ make clean        # ⚠️ stop + delete volumes (asks for confirmation)
 
 | Mode | env vars | API key | Notes |
 |---|---|---|---|
-| **ollama-local** (default) | `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock` | None | Local Ollama answers + deterministic 1024-dim embeddings for pgvector |
+| **ollama-local** (default) | `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=ollama` | None | Local Ollama answers + multilingual `bge-m3` 1024-dim embeddings for cross-lingual pgvector search |
 | **mock** | `EMBEDDING_PROVIDER=mock`, `LLM_PROVIDER=mock` | None — `OPENAI_API_KEY` can stay empty | Fully deterministic offline providers; useful for tests |
 | **openai** | `EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` | Requires a real `OPENAI_API_KEY` | Hosted LLM + OpenAI-compatible embeddings; embeddings are requested at 1024 dimensions |
 
-> **Local-first for interviews.** The main demo path uses `ollama` for answers and
-> `mock` embeddings for stable local vector search. The `openai` provider remains
-> available when hosted model quality is needed. Switching is an `.env` change; no
-> application code changes. See
+> **Local-first for interviews.** The main demo path uses `ollama` for both answers
+> and multilingual `bge-m3` embeddings. The `openai` provider remains available when
+> hosted model quality is needed, and `mock` gives fully deterministic offline runs.
+> Switching is an `.env` change; no application code changes. See
 > [Local model provider (Ollama)](#local-model-provider-ollama) below.
 
 ### Switching from local Ollama mode to OpenAI
 
-The system ships in **Ollama LLM + mock embedding mode** by default. To connect a
-real OpenAI-compatible API:
+The system ships in **Ollama LLM + Ollama (bge-m3) embedding mode** by default. To
+connect a real OpenAI-compatible API:
 
 1. In the project-root `.env` (the same file `cp .env.example .env` creates), set the
    provider and key (the model / base URL already have defaults). Config is anchored to
@@ -163,7 +166,8 @@ real OpenAI-compatible API:
 
 > `EMBEDDING_DIMENSIONS=1024` is important because the pgvector column is
 > `vector(1024)`. Switching back to local demo mode is:
-> `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=mock`.
+> `LLM_PROVIDER=ollama`, `EMBEDDING_PROVIDER=ollama` (or `EMBEDDING_PROVIDER=mock`
+> for deterministic offline vectors).
 
 ### Hostnames: Docker vs local
 
@@ -255,23 +259,26 @@ OLLAMA_BASE_URL=http://localhost:11434
 # Docker Compose uses the bundled ollama service inside the backend container.
 DOCKER_OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:7b-instruct
-# Embeddings are independent — keep EMBEDDING_PROVIDER=mock (offline) or =openai
-EMBEDDING_PROVIDER=mock
+# Embeddings are independent — the default uses Ollama bge-m3 (multilingual, cross-lingual);
+# you can also keep EMBEDDING_PROVIDER=mock (deterministic offline) or =openai
+EMBEDDING_PROVIDER=ollama
+OLLAMA_EMBEDDING_MODEL=bge-m3
 
-# 2. Start compose, then pull the model into the ollama_data volume
+# 2. Start compose, then pull the LLM + embedding models into the ollama_data volume
 docker compose up -d ollama
 docker compose exec ollama ollama pull qwen2.5:7b-instruct
+docker compose exec ollama ollama pull bge-m3
 ```
 
 That is the only change required — no application code changes. If the Ollama server
 is unreachable, `/chat` fails with a clear error (e.g. *"無法連線到 Ollama … 請確認
 Ollama 服務已啟動"*) rather than hanging or returning a fabricated answer.
 
-> **Scope:** This provider covers the **LLM** only. Embeddings are still selected by
-> `EMBEDDING_PROVIDER` (`openai` / `mock`). A fully local stack would also need a local
-> embedding provider — the `EmbeddingProvider` interface supports adding one the same way.
-> For interviews, keep `LLM_PROVIDER=ollama` and `EMBEDDING_PROVIDER=mock` to demonstrate
-> local-model operation while keeping vector search deterministic and dependency-light.
+> **Scope:** This provider covers the **LLM**. Embeddings are selected independently by
+> `EMBEDDING_PROVIDER` (`ollama` / `openai` / `mock`); the default `ollama` path uses the
+> local multilingual `bge-m3` model, giving a fully local, on-prem-style stack with no
+> data leaving the host. Use `EMBEDDING_PROVIDER=mock` when you want deterministic,
+> dependency-light vector search (e.g. CI).
 
 ## Local Development (without Docker)
 
@@ -351,18 +358,25 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/upload/documents" \
 #   "filename": "your_manual.pdf",
 #   "page_count": 24,
 #   "chunk_count": 87,
-#   "source_path": "data/uploads/.../your_manual.pdf"
+#   "source_path": "data/uploads/.../your_manual.pdf",
+#   "ocr_page_count": 0
 # }
 ```
+
+> **OCR fallback:** Pages with too little extractable text (scanned / image PDFs) are
+> rendered and OCR'd with Tesseract (`chi_tra+chi_sim+eng`, normalized to Traditional
+> Chinese); `ocr_page_count` reports how many pages were recovered this way. Controlled
+> by `OCR_ENABLED` / `OCR_DPI` / `OCR_LANGUAGES` / `OCR_MIN_CHARS`. It degrades gracefully
+> when `tesseract` / `poppler` are absent (the Docker backend image bundles both).
 
 > **Note:** Place public domain manuals (e.g., open-source SOP PDFs, RFC documents)
 > in `demo_data/documents/` for demo purposes. Files in this directory are excluded
 > from git tracking. Uploaded files are stored under `backend/data/uploads/`.
 
-> **Embedding:** On upload, each chunk is embedded and indexed in PostgreSQL + pgvector. In mock
-> embedding mode (the default for local Ollama demos) no API key is needed. In openai mode this requires a valid
-> `OPENAI_API_KEY` in `.env`; without it the upload fails with a clear error (no
-> half-written state).
+> **Embedding:** On upload, each chunk is embedded and indexed in PostgreSQL + pgvector.
+> In the default Ollama mode (multilingual `bge-m3`) and in mock mode no API key is needed.
+> In openai mode this requires a valid `OPENAI_API_KEY` in `.env`; without it the upload
+> fails with a clear error (no half-written state).
 
 ## Chat (RAG Q&A)
 
@@ -392,8 +406,32 @@ curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/chat" \
 
 > **Hallucination control:** The model is instructed to answer _only_ from retrieved
 > context. If the context is insufficient it responds with a fixed phrase rather than
-> fabricating an answer. Every request writes one `agent_runs` row and one
-> `tool_calls` row (retrieval step) to PostgreSQL for auditability.
+> fabricating an answer. Every request writes one `agent_runs` row (`task_type="rag_chat"`)
+> and one `tool_calls` row (`tool_name="hybrid_search"`) to PostgreSQL for auditability.
+
+> **Cross-lingual citations:** Each citation also carries `source_language` (`"zh"`/`"en"`)
+> and `snippet_translated` — the snippet translated into the question's language when the
+> chunk language differs (otherwise `null`). A `translate` tool call is logged when any
+> snippet is translated.
+
+## Agent Chat (Autonomous Tool-Calling)
+
+```bash
+# Same request/response shape as /chat; the LLM drives retrieval itself.
+curl -X POST "http://localhost:8000/projects/${PROJECT_ID}/agent-chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Which command resets the cache and what error code 4xx means?",
+    "top_k": 5
+  }'
+```
+
+Unlike `/chat`'s fixed pipeline, `/agent-chat` lets the LLM decide — via a single
+`search_documents(query, strategy)` tool — whether to retrieve, what to query, how many
+times, and which strategy (`hybrid` default / `keyword` for exact terms / `vector` for
+semantic), then answers. The loop is bounded by `AGENT_MAX_STEPS`. It writes one
+`agent_runs` row (`task_type="agent_chat"`, with `search_count` / `stop_reason`) plus one
+`tool_calls` row per search (`tool_name="search_documents"`, input `query`/`strategy`).
 
 ## Search Documents
 
@@ -536,10 +574,12 @@ How to use this trail when something looks wrong:
 
 - [x] Project scaffold, health endpoint, Docker Compose
 - [x] PostgreSQL data model (ORM models, Pydantic schemas, SQL migration)
-- [x] PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`)
+- [x] PDF ingestion → RAG pipeline (`POST /projects/{id}/upload/documents`), with Tesseract OCR fallback for scanned pages
 - [x] Embedding + PostgreSQL + pgvector vector storage & search (`GET /projects/{id}/search`)
-- [x] RAG chat API (`POST /projects/{id}/chat` — retrieval → LLM → answer + citations)
-- [x] Observability — every chat request writes `agent_runs` + `tool_calls` rows
+- [x] RAG chat API (`POST /projects/{id}/chat` — retrieval → optional rerank → LLM → answer + citations)
+- [x] Autonomous tool-calling agent (`POST /projects/{id}/agent-chat` — LLM-driven retrieval, strategy selection)
+- [x] Multilingual / cross-lingual retrieval (`bge-m3`) + Traditional-Chinese normalization + translated citation snippets
+- [x] Observability — every chat / agent request writes `agent_runs` + `tool_calls` rows
 - [x] React guided workflow UI (Vite + TypeScript + Tailwind CSS)
-- [x] Local model provider (Ollama) — native HTTP LLM provider for private / on-premise deployment
-- [ ] Local embedding provider, additional agent tools
+- [x] Local model provider (Ollama) — native HTTP LLM + multilingual embedding provider for private / on-premise deployment
+- [ ] Additional agent tools

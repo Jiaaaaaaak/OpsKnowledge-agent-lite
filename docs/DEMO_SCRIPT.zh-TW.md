@@ -8,10 +8,11 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
 
 ## 事前準備（Demo 前約 1 分鐘，不計入 demo 時間）
 
-1. `cp .env.example .env` — 預設 Ollama LLM + mock embedding。
+1. `cp .env.example .env` — 預設 Ollama 同時作為 LLM 與多語 embedding。
 2. `docker compose up --build -d` — 等到 `opsknowledge_backend` 顯示
    `Uvicorn running on http://0.0.0.0:8000`。
-3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` — 下載地端模型。
+3. `docker compose exec ollama ollama pull qwen2.5:7b-instruct` 與
+   `docker compose exec ollama ollama pull bge-m3` — 下載地端 LLM 與 embedding 模型。
 4. Smoke check：`curl http://localhost:8000/health` → `{"db":"connected","vector":"connected"}`。
 5. 在瀏覽器開啟 `http://localhost:8501`。
 6. 準備好：
@@ -52,6 +53,13 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
 > 重點訴求：「每次 chat 都會寫一筆 `agent_runs` 與一筆向量檢索的 `tool_calls`，
 > 完全可稽核。」
 
+> 選用（跨語）：對英文 SOP 用中文問同一個問題 — 答案會以繁體中文回覆，每段引用會同時
+> 顯示英文原文 snippet 與翻譯後的 snippet（多語 bge-m3 embedding）。
+
+> 選用（agent 模式）：`/agent-chat` 端點讓 LLM 自己決定要不要檢索、查什麼、查幾次、
+> 用哪種策略（hybrid / keyword / vector）；它記錄 `task_type="agent_chat"`，每次檢索
+> 一筆 `search_documents` tool call。
+
 ### 場景 4 · Agent 執行紀錄 / 可觀測性（30 秒）
 
 > 「這是怎麼證明 agent 實際幹了什麼。每次 run 都可查詢。」
@@ -76,7 +84,7 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
 
 > 「最後一點 — LLM 與 embedding provider 完全可插拔。」
 
-- 展示 `.env` 檔：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=mock`。
+- 展示 `.env` 檔：`LLM_PROVIDER=ollama`、`EMBEDDING_PROVIDER=ollama`（bge-m3）。
 - 說明：只改 `.env` 即可切到 `openai` 或 `mock`，不需改任何程式碼。
 
 ---
@@ -84,12 +92,16 @@ Demo 總時長：**約 3 分鐘**（精簡版）／ 約 5 分鐘（完整 walkth
 ## 重點訴求（補問時可用）
 
 - **地端優先的 LLMProvider 抽象** — 面試預設 `LLM_PROVIDER=ollama` 搭配
-  `EMBEDDING_PROVIDER=mock`。同一套 UI 仍可只改 `.env` 切到 hosted OpenAI 或完全 mock。
+  `EMBEDDING_PROVIDER=ollama`（bge-m3）。同一套 UI 仍可只改 `.env` 切到 hosted OpenAI 或完全 mock。
 - **LLM 邊界的 Pydantic 驗證** — 每筆結構化輸出都被驗證；失敗會被記到
   `tool_calls.error_message`，不會被靜默吞掉（Rule 12）。
 - **workflow-status 讀寫分離** — workflow-status endpoint 從不呼叫 LLM。快速、確定性、
   可安全自動刷新。
 - **Provider 可切換性** — `mock`、`ollama`、`openai` — 改一行 `.env`，不改程式。
+- **兩種問答模式** — `/chat`（固定 hybrid → 選用 rerank → 作答）vs `/agent-chat`
+  （自主 tool-calling agent 自行選策略與檢索次數，以 `AGENT_MAX_STEPS` 為上限）。
+- **多語 + 繁體中文** — bge-m3 支援跨語檢索；答案與 zh 翻譯統一正規化為繁體中文（OpenCC `s2twp`）。
+- **多模態匯入** — 掃描 / 影像型 PDF 頁會 fallback 到 Tesseract OCR；缺 tesseract/poppler 時自動降級。
 
 ---
 
