@@ -15,11 +15,10 @@ export interface ChatMessage {
 export interface ChatDraft {
   input: string;
   topK: number;
-  agentMode: boolean;
   messages: ChatMessage[];
 }
 
-export const defaultDraft: ChatDraft = { input: '', topK: 5, agentMode: false, messages: [] };
+export const defaultDraft: ChatDraft = { input: '', topK: 5, messages: [] };
 
 // ── 草稿持久化（per project，localStorage）──────────────────────────────
 function getDraftKey(projectId: string) {
@@ -59,8 +58,8 @@ function writeQaCache(projectId: string, key: string, value: { answer: string; c
   cache[key] = value;
   localStorage.setItem(qaCacheKey(projectId), JSON.stringify(cache));
 }
-function makeQaKey(docCount: number, agentMode: boolean, topK: number, question: string) {
-  return `${docCount}|${agentMode ? 'agent' : 'rag'}|${topK}|${question.trim()}`;
+function makeQaKey(docCount: number, topK: number, question: string) {
+  return `${docCount}|${topK}|${question.trim()}`;
 }
 
 // ── 進行中請求（in-memory，per project）+ 訂閱 ──────────────────────────
@@ -95,7 +94,7 @@ function nextId(offset = 0) {
 // 即使元件卸載，promise 仍會完成、把答案寫進草稿並 emit 通知當前掛載的頁面。
 export function submitChat(
   projectId: string,
-  opts: { question: string; topK: number; agentMode: boolean; docCount: number },
+  opts: { question: string; topK: number; docCount: number },
 ): void {
   const userText = opts.question.trim();
   if (!userText || pending.has(projectId)) return;
@@ -109,7 +108,7 @@ export function submitChat(
   emit();
 
   // 快取命中：直接重用先前答案，不打後端。
-  const cacheKey = makeQaKey(opts.docCount, opts.agentMode, opts.topK, userText);
+  const cacheKey = makeQaKey(opts.docCount, opts.topK, userText);
   const cached = readQaCache(projectId)[cacheKey];
   if (cached) {
     saveDraft(projectId, {
@@ -126,7 +125,8 @@ export function submitChat(
   pending.set(projectId, userText);
   emit();
 
-  chat(projectId, userText, opts.topK, opts.agentMode)
+  // 一律走自主 agent（/agent-chat）；agent 對非閒聊問題一定會檢索，確保答案接地。
+  chat(projectId, userText, opts.topK, true)
     .then((res: any) => {
       const answer = res.answer || '（空回覆）';
       const citations = res.citations || [];

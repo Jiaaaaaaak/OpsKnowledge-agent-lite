@@ -6,7 +6,6 @@ import { useProject } from '../../context/ProjectContext';
 const routeDetails: Record<string, { title: string; description: string }> = {
   '/projects': { title: '專案設定', description: '選擇既有專案或建立新專案。' },
   '/document-upload': { title: '上傳技術文件', description: '上傳 PDF 技術文件以建立向量索引知識庫。' },
-  '/chat': { title: '知識庫問答 (RAG)', description: '基於 RAG 技術檢索文件並回答維運問題。' },
   '/agent-runs': { title: 'Agent 執行紀錄', description: '檢視 AI 代理的歷史執行軌跡與工具呼叫細節。' },
   '/status': { title: '系統狀態', description: '檢視各項後端服務連線健康度。' },
   '/knowledge/workflow': { title: '知識庫問答流程', description: '上傳技術文件、建立向量索引，並使用 RAG 取得附引用來源的回答。' },

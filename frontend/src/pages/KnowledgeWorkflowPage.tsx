@@ -30,10 +30,9 @@ export default function KnowledgeWorkflowPage() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activeStep, setActiveStep] = useState<StepId | null>(null);
 
-  // 嵌入式 RAG 對話狀態（沿用 ChatPage 的草稿持久化行為）
+  // 嵌入式對話狀態（草稿持久化由 chatStore 管理）
   const [input, setInput] = useState(defaultDraft.input);
   const [topK, setTopK] = useState(defaultDraft.topK);
-  const [agentMode, setAgentMode] = useState(defaultDraft.agentMode);
   const [messages, setMessages] = useState<ChatMessage[]>(defaultDraft.messages);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
@@ -69,7 +68,6 @@ export default function KnowledgeWorkflowPage() {
     const draft = loadDraft(projectId);
     setInput(draft.input);
     setTopK(draft.topK);
-    setAgentMode(draft.agentMode);
     setMessages(draft.messages);
     setIsSubmitting(isPending(projectId));
     setDraftProjectId(projectId);
@@ -88,8 +86,8 @@ export default function KnowledgeWorkflowPage() {
   useEffect(() => {
     if (!projectId || draftProjectId !== projectId) return;
     // messages 不在這裡持久化（改由 store 顯式 saveDraft），以免覆蓋非同步抵達的答案。
-    saveDraft(projectId, { input, topK, agentMode });
-  }, [draftProjectId, input, projectId, topK, agentMode]);
+    saveDraft(projectId, { input, topK });
+  }, [draftProjectId, input, projectId, topK]);
 
   const canChat = Boolean(status?.knowledge?.can_chat);
 
@@ -142,7 +140,6 @@ export default function KnowledgeWorkflowPage() {
     submitChat(projectId, {
       question: input,
       topK,
-      agentMode,
       docCount: status?.knowledge?.document_count ?? 0,
     });
     setInput('');
@@ -319,9 +316,7 @@ export default function KnowledgeWorkflowPage() {
                             <Bot className="h-5 w-5" />
                           </div>
                           <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-slate-100 bg-white px-5 py-4 shadow-sm">
-                            <span className="text-sm font-medium text-slate-500">
-                              {agentMode ? 'Agent 正在輸出…' : '正在輸出…'}
-                            </span>
+                            <span className="text-sm font-medium text-slate-500">正在輸出…</span>
                             <div className="flex space-x-1.5">
                               <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-300" style={{ animationDelay: '0ms' }} />
                               <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-300" style={{ animationDelay: '150ms' }} />
@@ -333,27 +328,6 @@ export default function KnowledgeWorkflowPage() {
                     </div>
 
                     <div className="border-t border-slate-200 bg-white p-4">
-                      <div className="mb-3 flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => setAgentMode((v) => !v)}
-                          className="flex items-center gap-2 text-sm"
-                          title={agentMode
-                            ? 'Agent 模式：由 LLM 自行決定要不要查、查什麼、查幾次、用哪種檢索策略'
-                            : '一般模式：每次提問固定執行一次 hybrid 檢索'}
-                        >
-                          <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            agentMode ? 'bg-indigo-600' : 'bg-slate-300'
-                          }`}>
-                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              agentMode ? 'translate-x-4' : 'translate-x-0.5'
-                            }`} />
-                          </span>
-                          <span className={`font-medium ${agentMode ? 'text-indigo-700' : 'text-slate-600'}`}>
-                            Agent 模式{agentMode ? '（自主檢索）' : '（一般 RAG）'}
-                          </span>
-                        </button>
-                      </div>
                       <form onSubmit={handleSubmit} className="relative flex items-center">
                         <input
                           type="text"
