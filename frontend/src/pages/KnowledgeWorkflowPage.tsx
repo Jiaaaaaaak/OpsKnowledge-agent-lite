@@ -3,73 +3,22 @@ import { AlertCircle, ArrowRight, Bot, FileText, RefreshCw, Send, User } from 'l
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useProject } from '../context/ProjectContext';
-import { chat, getWorkflowStatus, listDocuments, uploadDocument } from '../services/api';
+import { getWorkflowStatus, listDocuments, uploadDocument } from '../services/api';
+import {
+  ChatMessage,
+  defaultDraft,
+  isPending,
+  loadDraft,
+  saveDraft,
+  submitChat,
+  subscribeChat,
+} from '../services/chatStore';
 import { ProjectRequiredState } from '../components/workflow/ProjectRequiredState';
 import { UploadPanel } from '../components/workflow/UploadPanel';
 import { WorkflowStatusPanel } from '../components/workflow/WorkflowStatusPanel';
 import { WorkflowStepper, WorkflowStep } from '../components/workflow/WorkflowStepper';
 
 type StepId = 'project' | 'knowledge' | 'ask';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  citations?: any[];
-  isError?: boolean;
-  cached?: boolean;
-}
-
-interface ChatDraft {
-  input: string;
-  topK: number;
-  agentMode: boolean;
-  messages: ChatMessage[];
-}
-
-const defaultDraft: ChatDraft = { input: '', topK: 5, agentMode: false, messages: [] };
-
-function getDraftKey(projectId: string) {
-  return `opsknowledge_rag_chat_${projectId}`;
-}
-
-function loadDraft(projectId: string): ChatDraft {
-  const saved = localStorage.getItem(getDraftKey(projectId));
-  if (!saved) return defaultDraft;
-  try {
-    return { ...defaultDraft, ...JSON.parse(saved) };
-  } catch {
-    return defaultDraft;
-  }
-}
-
-// 合併寫入草稿：read-modify-write，避免「輸入框持久化」與「訊息持久化」互相覆蓋。
-// #2 的關鍵——回答抵達時直接寫進草稿，即使使用者已切換頁面（元件卸載）答案也不會遺失。
-function saveDraft(projectId: string, partial: Partial<ChatDraft>) {
-  const cur = loadDraft(projectId);
-  localStorage.setItem(getDraftKey(projectId), JSON.stringify({ ...cur, ...partial }));
-}
-
-// #3 前端問答快取：同專案、相同 文件數+模式+topK+問題 已答過就直接重用，省一次後端往返。
-// 把 document_count 納入 key，等於「上傳新文件後自然失效」的輕量 invalidation。
-function qaCacheKey(projectId: string) {
-  return `opsknowledge_qa_cache_${projectId}`;
-}
-function readQaCache(projectId: string): Record<string, { answer: string; citations: any[] }> {
-  try {
-    return JSON.parse(localStorage.getItem(qaCacheKey(projectId)) || '{}');
-  } catch {
-    return {};
-  }
-}
-function writeQaCache(projectId: string, key: string, value: { answer: string; citations: any[] }) {
-  const cache = readQaCache(projectId);
-  cache[key] = value;
-  localStorage.setItem(qaCacheKey(projectId), JSON.stringify(cache));
-}
-function makeQaKey(docCount: number, agentMode: boolean, topK: number, question: string) {
-  return `${docCount}|${agentMode ? 'agent' : 'rag'}|${topK}|${question.trim()}`;
-}
 
 export default function KnowledgeWorkflowPage() {
   const { currentProject } = useProject();
@@ -114,7 +63,7 @@ export default function KnowledgeWorkflowPage() {
     loadStatus();
   }, [loadStatus]);
 
-  // 切換專案時載入該專案的對話草稿
+  // 切換專案時載入該專案的對話草稿，並還原「進行中」狀態（切頁再回來仍顯示正在輸出）。
   useEffect(() => {
     if (!projectId) return;
     const draft = loadDraft(projectId);
@@ -122,12 +71,23 @@ export default function KnowledgeWorkflowPage() {
     setTopK(draft.topK);
     setAgentMode(draft.agentMode);
     setMessages(draft.messages);
+    setIsSubmitting(isPending(projectId));
     setDraftProjectId(projectId);
+  }, [projectId]);
+
+  // 訂閱 store：請求在模組層持續執行，送出/答案抵達/進行中狀態改變時同步畫面。
+  // 即使送出後切走再回來，完成事件仍會觸發此處更新訊息與進行中狀態。
+  useEffect(() => {
+    if (!projectId) return;
+    return subscribeChat(() => {
+      setMessages(loadDraft(projectId).messages);
+      setIsSubmitting(isPending(projectId));
+    });
   }, [projectId]);
 
   useEffect(() => {
     if (!projectId || draftProjectId !== projectId) return;
-    // messages 不在這裡持久化（改由 handleSubmit 顯式 saveDraft），以免覆蓋非同步抵達的答案。
+    // messages 不在這裡持久化（改由 store 顯式 saveDraft），以免覆蓋非同步抵達的答案。
     saveDraft(projectId, { input, topK, agentMode });
   }, [draftProjectId, input, projectId, topK, agentMode]);
 
@@ -174,55 +134,18 @@ export default function KnowledgeWorkflowPage() {
     return { totalPages, totalChunks };
   }, [documents]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isSubmitting || !canChat || !projectId) return;
-
-    const userText = input.trim();
-    const docCount = status?.knowledge?.document_count ?? 0;
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: userText };
-    // baseMessages 在 closure 內固定，即使元件卸載也能算出正確的最終訊息陣列（#2）。
-    const baseMessages = [...messages, userMsg];
-    setMessages(baseMessages);
+    if (!input.trim() || !canChat || !projectId || isPending(projectId)) return;
+    // 請求交給 store（模組層）執行；使用者訊息、快取、進行中狀態、答案都由 store 寫進草稿並
+    // emit，本元件透過 subscribeChat 同步畫面。切走再回來仍能讀到進行中狀態與最終答案。
+    submitChat(projectId, {
+      question: input,
+      topK,
+      agentMode,
+      docCount: status?.knowledge?.document_count ?? 0,
+    });
     setInput('');
-    saveDraft(projectId, { input: '', messages: baseMessages });
-
-    // #3 快取命中：相同 文件數+模式+topK+問題 直接重用先前答案，不打後端。
-    const cacheKey = makeQaKey(docCount, agentMode, topK, userText);
-    const cached = readQaCache(projectId)[cacheKey];
-    if (cached) {
-      const finalMessages: ChatMessage[] = [
-        ...baseMessages,
-        { id: (Date.now() + 1).toString(), role: 'assistant', content: cached.answer, citations: cached.citations, cached: true },
-      ];
-      setMessages(finalMessages);
-      saveDraft(projectId, { messages: finalMessages });
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const res: any = await chat(projectId, userText, topK, agentMode);
-      const answer = res.answer || '（空回覆）';
-      const citations = res.citations || [];
-      const finalMessages: ChatMessage[] = [
-        ...baseMessages,
-        { id: (Date.now() + 1).toString(), role: 'assistant', content: answer, citations },
-      ];
-      setMessages(finalMessages);
-      saveDraft(projectId, { messages: finalMessages }); // #2 即使已切走，答案也寫進草稿
-      writeQaCache(projectId, cacheKey, { answer, citations }); // #3 存入快取
-    } catch (err: any) {
-      // 保留失敗的提問，附帶錯誤訊息供重試（錯誤不進快取）
-      const finalMessages: ChatMessage[] = [
-        ...baseMessages,
-        { id: (Date.now() + 1).toString(), role: 'assistant', content: `發生錯誤: ${err.message}`, isError: true },
-      ];
-      setMessages(finalMessages);
-      saveDraft(projectId, { messages: finalMessages });
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   if (!currentProject) {
@@ -395,7 +318,10 @@ export default function KnowledgeWorkflowPage() {
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-indigo-600 shadow-sm">
                             <Bot className="h-5 w-5" />
                           </div>
-                          <div className="rounded-2xl rounded-tl-sm border border-slate-100 bg-white px-5 py-4 shadow-sm">
+                          <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-slate-100 bg-white px-5 py-4 shadow-sm">
+                            <span className="text-sm font-medium text-slate-500">
+                              {agentMode ? 'Agent 正在輸出…' : '正在輸出…'}
+                            </span>
                             <div className="flex space-x-1.5">
                               <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-300" style={{ animationDelay: '0ms' }} />
                               <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-300" style={{ animationDelay: '150ms' }} />
