@@ -474,3 +474,91 @@ class TestIngestWithVectorStore:
 
         payloads = vector_store.add_chunks.call_args.args[0]
         vector_store.delete_chunks.assert_called_once_with([p.chunk_id for p in payloads])
+
+
+# ─────────────────────────────────────────────────────────────
+# OCR fallback：掃描 / 影像型 PDF
+# ─────────────────────────────────────────────────────────────
+
+class TestExtractPagesWithOcr:
+    def test_no_ocr_when_native_text_sufficient(self):
+        # 原生文字足夠 → 不觸發 OCR。
+        pages = [(1, "a" * 50), (2, "b" * 50)]
+        with patch.object(DocumentIngestionService, "_extract_pages", return_value=pages), \
+             patch("app.services.document_service.ocr_service") as mock_ocr:
+            mock_ocr.ocr_available.return_value = True
+            result, ocr_pages = DocumentIngestionService._extract_pages_with_ocr(b"x")
+
+        assert result == pages
+        assert ocr_pages == []
+        mock_ocr.ocr_pdf_pages.assert_not_called()
+
+    def test_ocr_fills_sparse_pages_and_normalizes_to_traditional(self):
+        # 稀疏頁(掃描)才送 OCR，結果經 to_traditional 正規化為繁體並覆蓋原文。
+        pages = [(1, "native text long enough to skip ocr"), (2, "")]
+        with patch.object(DocumentIngestionService, "_extract_pages", return_value=pages), \
+             patch("app.services.document_service.ocr_service") as mock_ocr, \
+             patch("app.services.document_service.to_traditional", side_effect=lambda t: "繁:" + t):
+            mock_ocr.ocr_available.return_value = True
+            mock_ocr.ocr_pdf_pages.return_value = {2: "网络设置"}
+            result, ocr_pages = DocumentIngestionService._extract_pages_with_ocr(b"x")
+
+        assert mock_ocr.ocr_pdf_pages.call_args.args[1] == [2]  # 只對稀疏頁送 OCR
+        assert result[0][1] == "native text long enough to skip ocr"  # 原生頁不變
+        assert result[1] == (2, "繁:网络设置")  # OCR 文字經繁體轉換
+        assert ocr_pages == [2]
+
+    def test_degrades_to_native_when_ocr_unavailable(self):
+        # tesseract/poppler 不在 → 等同未啟用，回原生結果不崩。
+        pages = [(1, ""), (2, "")]
+        with patch.object(DocumentIngestionService, "_extract_pages", return_value=pages), \
+             patch("app.services.document_service.ocr_service") as mock_ocr:
+            mock_ocr.ocr_available.return_value = False
+            result, ocr_pages = DocumentIngestionService._extract_pages_with_ocr(b"x")
+
+        assert result == pages
+        assert ocr_pages == []
+        mock_ocr.ocr_pdf_pages.assert_not_called()
+
+
+class TestIngestScannedPdf:
+    @staticmethod
+    def _blank_page() -> MagicMock:
+        page = MagicMock()
+        page.extract_text.return_value = ""  # 掃描頁抽不到原生文字
+        return page
+
+    @patch("app.services.document_service.PdfReader")
+    def test_scanned_pdf_recovered_via_ocr(self, mock_reader_cls):
+        # 掃描件原生全空 → OCR 補字 → 不再丟「無文字」錯誤，且 ocr_page_count 反映頁數。
+        from uuid import uuid4
+        from pathlib import Path
+
+        mock_reader_cls.return_value.pages = [self._blank_page(), self._blank_page()]
+        mock_db = MagicMock()
+        with patch.object(DocumentIngestionService, "_save_file", return_value=Path("x")), \
+             patch("app.services.document_service.ocr_service") as mock_ocr, \
+             patch("app.services.document_service.to_traditional", side_effect=lambda t: t):
+            mock_ocr.ocr_available.return_value = True
+            mock_ocr.ocr_pdf_pages.return_value = {
+                1: "Recovered SOP text from a scanned page. " * 12,
+                2: "Second scanned page recovered by OCR. " * 12,
+            }
+            svc = DocumentIngestionService()  # 無 vector store（僅驗證抽取/分塊）
+            result = svc.ingest(mock_db, uuid4(), "scan.pdf", b"fake")
+
+        assert result.chunk_count > 0
+        assert result.ocr_page_count == 2
+
+    @patch("app.services.document_service.PdfReader")
+    def test_all_blank_and_ocr_unavailable_raises(self, mock_reader_cls):
+        # 全空且 OCR 不可用 → 仍丟錯（改良後訊息）。
+        from uuid import uuid4
+
+        mock_reader_cls.return_value.pages = [self._blank_page()]
+        mock_db = MagicMock()
+        with patch("app.services.document_service.ocr_service") as mock_ocr:
+            mock_ocr.ocr_available.return_value = False
+            svc = DocumentIngestionService()
+            with pytest.raises(ValueError, match="OCR"):
+                svc.ingest(mock_db, uuid4(), "blank.pdf", b"fake")

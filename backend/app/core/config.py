@@ -69,5 +69,12 @@ class Settings(BaseSettings):
     # Agent（自主 tool-calling 檢索）：每次對話最多幾步 LLM↔工具往返，作安全上限避免無限迴圈。
     agent_max_steps: int = 5
 
+    # OCR fallback（掃描 / 影像型 PDF）：抽不到文字的頁才渲染 + Tesseract 辨識。
+    # tesseract / poppler 不在時自動降級（等同關閉），不影響原生文字 PDF 與 CI。
+    ocr_enabled: bool = True
+    ocr_dpi: int = 200                       # 頁面渲染解析度（速度／準確度平衡）
+    ocr_languages: str = "chi_tra+chi_sim+eng"
+    ocr_min_chars: int = 20                  # 頁面 strip 後字數 < 此值即視為需 OCR
+
 
 settings = Settings()

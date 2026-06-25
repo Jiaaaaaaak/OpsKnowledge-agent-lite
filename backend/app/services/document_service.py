@@ -11,7 +11,10 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.document import Document, DocumentChunk
+from app.services import ocr_service
+from app.services.llm_service import to_traditional
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,7 @@ class DocumentIngestionResult(BaseModel):
     page_count: int
     chunk_count: int
     source_path: str
+    ocr_page_count: int = 0  # 其中經 OCR 補上文字的頁數（掃描 / 影像頁）
 
 
 class DocumentIngestionService:
@@ -129,6 +133,30 @@ class DocumentIngestionService:
         except Exception as exc:
             raise ValueError(f"無法解析 PDF 檔案：{exc}") from exc
         return [(i + 1, page.extract_text() or "") for i, page in enumerate(reader.pages)]
+
+    @staticmethod
+    def _extract_pages_with_ocr(content: bytes) -> tuple[list[tuple[int, str]], list[int]]:
+        """先抽原生文字，對「文字過少」的頁（掃描 / 影像）以 OCR 補字。
+        回傳 (頁面清單, 經 OCR 補字的頁碼清單)。OCR 不可用時等同只回原生文字。"""
+        pages = DocumentIngestionService._extract_pages(content)
+        if not settings.ocr_enabled or not ocr_service.ocr_available():
+            return pages, []
+
+        sparse = [pn for pn, text in pages if len(text.strip()) < settings.ocr_min_chars]
+        if not sparse:
+            return pages, []
+
+        ocr_texts = ocr_service.ocr_pdf_pages(content, sparse)
+        if not ocr_texts:
+            return pages, []
+
+        # OCR 結果統一轉繁體（簡體掃描件正規化），覆蓋原本過少的文字。
+        merged = [
+            (pn, to_traditional(ocr_texts[pn]) if ocr_texts.get(pn, "").strip() else text)
+            for pn, text in pages
+        ]
+        ocr_pages = [pn for pn in sparse if ocr_texts.get(pn, "").strip()]
+        return merged, ocr_pages
 
     @staticmethod
     def _join_pages(pages: list[tuple[int, str]]) -> tuple[str, list[tuple[int, int]]]:
@@ -270,12 +298,15 @@ class DocumentIngestionService:
         content: bytes,
     ) -> DocumentIngestionResult:
         """儲存 PDF 至磁碟、抽取文字分塊、寫入資料庫，回傳匯入摘要."""
-        all_pages = self._extract_pages(content)
+        all_pages, ocr_pages = self._extract_pages_with_ocr(content)
         total_pages = len(all_pages)
 
         non_empty_pages = [(num, text) for num, text in all_pages if text.strip()]
         if not non_empty_pages:
-            raise ValueError("PDF 不含可抽取的文字內容（可能為掃描圖檔）")
+            raise ValueError(
+                "PDF 不含可抽取的文字內容；OCR 也未能辨識"
+                "（請確認檔案品質，或 OCR 是否啟用且 tesseract 已安裝）"
+            )
 
         source_path = str(self._save_file(project_id, filename, content))
 
@@ -285,7 +316,7 @@ class DocumentIngestionService:
             filename=filename,
             document_type="pdf",
             source_path=source_path,
-            metadata_={"page_count": total_pages},
+            metadata_={"page_count": total_pages, "ocr_page_count": len(ocr_pages)},
         )
         db.add(doc)
 
@@ -352,4 +383,5 @@ class DocumentIngestionService:
             page_count=total_pages,
             chunk_count=chunk_index,
             source_path=source_path,
+            ocr_page_count=len(ocr_pages),
         )
