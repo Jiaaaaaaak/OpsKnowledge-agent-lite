@@ -101,8 +101,9 @@ ollama (ollama list)   ─┘             │
                                       └─► frontend（backend /health 通過後才起）
 ```
 
-Backend 容器啟動時會自動跑 `python scripts/create_tables.py && uvicorn ...`，
-schema 在 API 開放前就會建好。
+Backend 容器啟動時會自動跑 `alembic upgrade head && uvicorn ...`，以版本化 migration
+套用 schema（不再用 create_all），在 API 開放前就會建好。
+`python scripts/create_tables.py` 保留為別名，會執行同一套 migration。
 
 ### 常用 Make target
 

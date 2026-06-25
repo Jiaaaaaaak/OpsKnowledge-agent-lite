@@ -103,8 +103,9 @@ ollama (ollama list)   ─┘             │
                                       └─► frontend (waits for backend /health)
 ```
 
-Backend container runs `python scripts/create_tables.py && uvicorn ...` on start —
-schema is applied automatically before the API comes up.
+Backend container runs `alembic upgrade head && uvicorn ...` on start — versioned
+schema migrations are applied automatically before the API comes up (no `create_all`).
+`python scripts/create_tables.py` remains as an alias that runs the same migrations.
 
 ### Useful Make targets
 

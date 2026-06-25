@@ -92,7 +92,8 @@ services:
         condition: service_started
     volumes:
       - ./backend:/app
-    command: sh -c "python scripts/create_tables.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    # 啟動先跑 Alembic migrations 到 head（versioned schema，非 create_all），再起 API。
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     healthcheck:
       test:
         - "CMD-SHELL"

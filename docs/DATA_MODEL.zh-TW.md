@@ -5,8 +5,9 @@
 實作檔案：
 - ORM 模型：`backend/app/models/`
 - Pydantic schemas：`backend/app/schemas/`
-- 初始 SQL schema：`backend/migrations/001_initial_schema.sql`
-- 建表腳本：`backend/scripts/create_tables.py`
+- Schema migrations（Alembic，正式來源）：`backend/migrations/versions/`，以 `alembic upgrade head` 套用
+- 參考用 SQL schema：`backend/migrations/001_initial_schema.sql`（手動 `psql` 備援）
+- Bootstrap 腳本（等同 `alembic upgrade head` 的別名）：`backend/scripts/create_tables.py`
 
 ---
 

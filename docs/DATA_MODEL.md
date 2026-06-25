@@ -5,8 +5,9 @@ English | [繁體中文](DATA_MODEL.zh-TW.md)
 Implementation files:
 - ORM models: `backend/app/models/`
 - Pydantic schemas: `backend/app/schemas/`
-- Initial SQL schema: `backend/migrations/001_initial_schema.sql`
-- Table creation script: `backend/scripts/create_tables.py`
+- Schema migrations (Alembic, canonical): `backend/migrations/versions/` — apply with `alembic upgrade head`
+- Reference SQL schema: `backend/migrations/001_initial_schema.sql` (manual `psql` fallback)
+- Bootstrap script (alias for `alembic upgrade head`): `backend/scripts/create_tables.py`
 
 ---
 
