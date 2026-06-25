@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.project import Project
@@ -81,9 +82,16 @@ def upload_document(
             detail="只接受 PDF 檔案（.pdf）",
         )
 
-    content = file.file.read()
+    # 只讀到上限 + 1 byte：避免把超大檔整個塞進記憶體才發現超標。
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    content = file.file.read(max_bytes + 1)
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="上傳的檔案為空")
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"檔案超過大小上限 {settings.max_upload_mb} MB",
+        )
 
     try:
         svc = DocumentIngestionService(vector_store=get_vector_store(db_session=db))

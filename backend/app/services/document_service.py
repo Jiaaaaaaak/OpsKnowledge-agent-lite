@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 UPLOAD_DIR = Path("data/uploads")
 
+# 檔名清洗：保留中英數、底線、點、減號、空白與括號；其餘（含路徑分隔符）一律換成底線。
+_UNSAFE_FILENAME_RE = re.compile(r"[^\w.\-() 一-鿿]")
+
 _DEFAULT_CHUNK_SIZE = 800
 _DEFAULT_OVERLAP = 100
 _DEFAULT_MIN_CHUNK_SIZE = 100
@@ -132,6 +135,10 @@ class DocumentIngestionService:
             reader = PdfReader(BytesIO(content))
         except Exception as exc:
             raise ValueError(f"無法解析 PDF 檔案：{exc}") from exc
+        if len(reader.pages) > settings.max_pdf_pages:
+            raise ValueError(
+                f"PDF 頁數（{len(reader.pages)}）超過上限 {settings.max_pdf_pages} 頁"
+            )
         return [(i + 1, page.extract_text() or "") for i, page in enumerate(reader.pages)]
 
     @staticmethod
@@ -283,10 +290,18 @@ class DocumentIngestionService:
 
         return merged
 
-    def _save_file(self, project_id: UUID, filename: str, content: bytes) -> Path:
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        """清洗上傳檔名：去掉任何目錄成分與危險字元，避免 path traversal / 覆寫既有檔案。"""
+        name = Path(filename or "").name  # 去掉 ../、絕對路徑等目錄成分，只留檔名本身
+        name = _UNSAFE_FILENAME_RE.sub("_", name).strip()
+        return name or "document.pdf"
+
+    def _save_file(self, project_id: UUID, doc_id: UUID, filename: str, content: bytes) -> Path:
         dest_dir = UPLOAD_DIR / str(project_id) / "documents"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / filename
+        # 以 document id 前綴，確保唯一：同名檔不會互相覆寫；filename 已清洗無路徑成分。
+        dest = dest_dir / f"{doc_id}_{filename}"
         dest.write_bytes(content)
         return dest
 
@@ -298,6 +313,9 @@ class DocumentIngestionService:
         content: bytes,
     ) -> DocumentIngestionResult:
         """儲存 PDF 至磁碟、抽取文字分塊、寫入資料庫，回傳匯入摘要."""
+        filename = self._safe_filename(filename)
+        doc_id = uuid4()  # 先產生 id：供磁碟檔名前綴、chunk FK 與回傳結果共用（避免依賴 flush 時機）
+
         all_pages, ocr_pages = self._extract_pages_with_ocr(content)
         total_pages = len(all_pages)
 
@@ -308,10 +326,10 @@ class DocumentIngestionService:
                 "（請確認檔案品質，或 OCR 是否啟用且 tesseract 已安裝）"
             )
 
-        source_path = str(self._save_file(project_id, filename, content))
+        source_path = str(self._save_file(project_id, doc_id, filename, content))
 
         doc = Document(
-            id=uuid4(),  # 先產生 id，供下方 chunk 設定 FK 與回傳結果使用（避免依賴 flush 時機）
+            id=doc_id,
             project_id=project_id,
             filename=filename,
             document_type="pdf",
@@ -325,6 +343,11 @@ class DocumentIngestionService:
         # 全文合併 → 章節優先切分
         full_text, page_offsets = self._join_pages(non_empty_pages)
         chunk_dicts = self._chunk_text_by_section(full_text, page_offsets)
+        if len(chunk_dicts) > settings.max_chunks_per_document:
+            raise ValueError(
+                f"文件切出的 chunk 數（{len(chunk_dicts)}）超過上限 "
+                f"{settings.max_chunks_per_document}"
+            )
 
         chunk_index = 0
         payloads: list[ChunkPayload] = []

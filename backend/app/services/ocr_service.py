@@ -54,7 +54,9 @@ def ocr_pdf_pages(content: bytes, page_numbers: list[int]) -> dict[int, str]:
             )
             if not images:
                 continue
-            text = pytesseract.image_to_string(images[0], lang=settings.ocr_languages)
+            text = pytesseract.image_to_string(
+                images[0], lang=settings.ocr_languages, timeout=settings.ocr_timeout_seconds
+            )
             if text.strip():
                 results[page_num] = text
         except Exception:

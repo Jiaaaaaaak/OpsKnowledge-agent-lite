@@ -17,6 +17,19 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
 
+    # CORS：允許的前端來源（逗號分隔）。預設僅前端 dev server；正式部署以 env 覆蓋成正式網域。
+    # 不再用萬用 "*"，避免任意網站直接打公開操作面。
+    cors_origins: str = "http://localhost:8501"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    # 上傳限制：避免大檔一次讀進記憶體後拖垮 PDF parse / OCR / embedding。
+    max_upload_mb: int = 20                   # 單檔大小上限（MB）
+    max_pdf_pages: int = 500                  # 單份 PDF 頁數上限
+    max_chunks_per_document: int = 5000       # 單份文件可產生的 chunk 數上限
+
     # PostgreSQL
     postgres_host: str = "localhost"
     postgres_port: int = 5432
@@ -75,6 +88,7 @@ class Settings(BaseSettings):
     ocr_dpi: int = 200                       # 頁面渲染解析度（速度／準確度平衡）
     ocr_languages: str = "chi_tra+chi_sim+eng"
     ocr_min_chars: int = 20                  # 頁面 strip 後字數 < 此值即視為需 OCR
+    ocr_timeout_seconds: float = 30.0        # 單頁 OCR 上限秒數，避免單頁卡死整份匯入
 
 
 settings = Settings()

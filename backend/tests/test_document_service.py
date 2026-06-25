@@ -299,6 +299,38 @@ class TestExtractPages:
         with pytest.raises(ValueError, match="無法解析"):
             DocumentIngestionService._extract_pages(b"not a pdf")
 
+    @patch("app.services.document_service.PdfReader")
+    def test_too_many_pages_raises_value_error(self, mock_reader_cls):
+        # 超過 max_pdf_pages 必須擋下，避免大檔在 save 前就拖垮抽取 / OCR。
+        from app.core.config import settings
+
+        page = MagicMock()
+        page.extract_text.return_value = "x"
+        mock_reader_cls.return_value.pages = [page] * (settings.max_pdf_pages + 1)
+
+        with pytest.raises(ValueError, match="超過上限"):
+            DocumentIngestionService._extract_pages(b"fake")
+
+
+# ─────────────────────────────────────────────────────────────
+# _safe_filename（path traversal / 覆寫防護）
+# ─────────────────────────────────────────────────────────────
+
+class TestSafeFilename:
+
+    def test_strips_directory_traversal(self):
+        # 重點：含 ../ 或絕對路徑的惡意檔名不得逃出 uploads 目錄。
+        assert DocumentIngestionService._safe_filename("../../etc/passwd") == "passwd"
+        assert "/" not in DocumentIngestionService._safe_filename("/abs/path/x.pdf")
+        assert DocumentIngestionService._safe_filename("a/b/c.pdf") == "c.pdf"
+
+    def test_keeps_chinese_and_basic_chars(self):
+        assert DocumentIngestionService._safe_filename("故障排除 SOP(v2).pdf") == "故障排除 SOP(v2).pdf"
+
+    def test_empty_falls_back_to_default(self):
+        assert DocumentIngestionService._safe_filename("") == "document.pdf"
+        assert DocumentIngestionService._safe_filename(None) == "document.pdf"
+
 
 # ─────────────────────────────────────────────────────────────
 # ingest 主流程（mocked DB + mocked PDF）
