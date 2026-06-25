@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 import time
 import uuid
 
@@ -18,12 +19,35 @@ from app.models.agent import AgentRun, ToolCall
 from app.models.project import Project
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 from app.services.llm_service import (
+    AgentToolCall,
     detect_language,
     format_citations,
     get_llm_provider,
     to_traditional,
     translate_snippet,
 )
+
+# 純閒聊／問候才允許不檢索；含疑問或技術詞、或較長的輸入一律視為需檢索（偏向接地）。
+_CHITCHAT_TOKENS = (
+    "你好", "哈囉", "嗨", "hi", "hello", "早安", "午安", "晚安",
+    "謝謝", "thanks", "thank you", "你是誰", "who are you", "掰掰", "bye", "再見",
+)
+_QUESTION_HINTS = (
+    "?", "？", "如何", "怎麼", "怎樣", "什麼", "為什麼", "哪", "步驟", "設定",
+    "錯誤", "how", "what", "why", "when", "where", "which", "error", "config",
+)
+
+
+def _is_chitchat(text: str) -> bool:
+    """是否為純閒聊／問候（可不檢索）。偏保守：含疑問/技術詞或較長輸入一律回 False。"""
+    q = text.strip().lower()
+    if not q:
+        return False
+    if any(h in q for h in _QUESTION_HINTS):
+        return False
+    if len(q) > 16:
+        return False
+    return any(t in q for t in _CHITCHAT_TOKENS)
 from app.services.retrieval import get_retrieval_service
 
 _VALID_STRATEGIES = ("hybrid", "keyword", "vector")
@@ -64,9 +88,12 @@ _SEARCH_TOOL = {
 _AGENT_SYSTEM_PROMPT = """\
 You are an autonomous technical support agent for IT operations.
 
-You have one tool: search_documents(query, strategy). You decide whether to use it,
-what to search for, how many times, and which strategy:
-- Greetings or meta questions ("who are you") -> answer directly, do NOT search.
+You have one tool: search_documents(query, strategy). You decide what to search for,
+how many times, and which strategy:
+- ONLY pure greetings or meta questions ("hi", "who are you") may be answered without
+  searching. For EVERY other question you MUST call search_documents at least once
+  before answering. Never answer factual or how-to questions from your own prior
+  knowledge — the answer must come from the project's documents.
 - Factual or how-to questions -> search first, then answer ONLY from the results.
 - Exact terms (error codes, command names, config keys, IDs) -> strategy="keyword".
 - Conceptual or semantic questions -> strategy="vector". Otherwise -> strategy="hybrid".
@@ -120,6 +147,8 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     answer = ""
     stop_reason = "completed"
+    chitchat = _is_chitchat(body.question)  # 純閒聊才允許不檢索
+    forced_search = False
 
     try:
         for _ in range(settings.agent_max_steps):
@@ -127,6 +156,35 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
             _accumulate_usage(total_usage, resp.usage)
 
             if not resp.tool_calls:
+                # 強制接地：非閒聊卻一次都沒查 → 程式強制檢索一次再讓模型基於文件重答，
+                # 不讓 agent「覺得自己會」就略過文件、答得沒有出處。
+                if not search_records and not chitchat and not forced_search:
+                    forced_search = True
+                    forced_tc = AgentToolCall(
+                        id="forced-search",
+                        name="search_documents",
+                        arguments={"query": body.question, "strategy": "hybrid"},
+                    )
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {"id": forced_tc.id, "name": forced_tc.name, "arguments": forced_tc.arguments}
+                            ],
+                        }
+                    )
+                    content, record, hits = _execute_tool(
+                        retrieval, str(project_id), forced_tc, body.top_k
+                    )
+                    messages.append(
+                        {"role": "tool", "tool_call_id": forced_tc.id, "name": forced_tc.name, "content": content}
+                    )
+                    if record is not None:
+                        search_records.append(record)
+                    for hit in hits:
+                        accumulated_hits.setdefault(hit["chunk_id"], hit)
+                    continue
                 answer = resp.content or ""
                 break
 

@@ -231,3 +231,48 @@ def test_agent_project_not_found_raises_404() -> None:
             assert False, "should have raised"
         except HTTPException as exc:
             assert exc.status_code == 404
+
+
+# ─────────────────────────────────────────────────────────────
+# 強制接地：非閒聊不得跳過檢索
+# ─────────────────────────────────────────────────────────────
+
+def test_agent_forces_retrieval_when_model_skips_for_non_chitchat() -> None:
+    # 模型第一輪想直接作答（未呼叫工具）但問題非閒聊 → 程式強制檢索一次再讓它基於文件重答。
+    project_id = uuid.uuid4()
+    db = _make_db(project_id)
+    provider = _ScriptedProvider([
+        AgentLLMResponse(content="我直接回答（未檢索）", tool_calls=[]),
+        AgentLLMResponse(content="根據文件：systemctl restart nginx", tool_calls=[]),
+    ])
+    hits = [_hit("c1", "Restart nginx with systemctl restart nginx.")]
+
+    with patch.object(settings, "agent_max_steps", 5), \
+         patch("app.services.agent_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.agent_service.get_llm_provider", return_value=provider):
+        mock_retrieval.return_value.search.return_value = (hits, _breakdown(hits))
+        response = run_agent_chat(project_id, ChatRequest(question="如何重啟 nginx 服務？", top_k=3), db)
+
+    # 程式強制檢索（query=原問題, strategy=hybrid），引用接地、答案來自文件
+    assert mock_retrieval.return_value.search.call_args.kwargs["strategy"] == "hybrid"
+    search_calls = [t for t in _tool_calls(db) if t.tool_name == "search_documents"]
+    assert len(search_calls) == 1
+    assert search_calls[0].input_json["query"] == "如何重啟 nginx 服務？"
+    assert [c.chunk_id for c in response.citations] == ["c1"]
+    assert "systemctl" in response.answer
+    assert _agent_run(db).output_json["search_count"] == 1
+
+
+def test_agent_chitchat_still_skips_retrieval() -> None:
+    # 純閒聊 → 不強制檢索（沿用既有行為）。
+    project_id = uuid.uuid4()
+    db = _make_db(project_id)
+    provider = _ScriptedProvider([
+        AgentLLMResponse(content="你好！我是維運助理。", tool_calls=[]),
+    ])
+    with patch("app.services.agent_service.get_retrieval_service") as mock_retrieval, \
+         patch("app.services.agent_service.get_llm_provider", return_value=provider):
+        run_agent_chat(project_id, ChatRequest(question="你好", top_k=3), db)
+
+    mock_retrieval.return_value.search.assert_not_called()
+    assert [t.tool_name for t in _tool_calls(db)] == []
