@@ -137,10 +137,16 @@ export default function KnowledgeWorkflowPage() {
     if (!input.trim() || !canChat || !projectId || isPending(projectId)) return;
     // 請求交給 store（模組層）執行；使用者訊息、快取、進行中狀態、答案都由 store 寫進草稿並
     // emit，本元件透過 subscribeChat 同步畫面。切走再回來仍能讀到進行中狀態與最終答案。
+    // 文件內容簽章：每份文件 id:chunk_count 排序後串接。比單純文件數更能正確失效快取
+    // （刪一份再上傳一份時數量不變、內容已變）。
+    const docsSig = documents
+      .map((doc) => `${doc.id}:${doc.chunk_count ?? 0}`)
+      .sort()
+      .join(',');
     submitChat(projectId, {
       question: input,
       topK,
-      docCount: status?.knowledge?.document_count ?? 0,
+      docsSig,
     });
     setInput('');
   };

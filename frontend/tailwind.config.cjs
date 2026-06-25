@@ -1,5 +1,7 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+// package.json 為 "type": "module"，故 .cjs 檔須用 CommonJS 匯出（與 postcss.config.cjs 一致），
+// 不能用 ESM export default，否則 build 期會出現模組格式警告。
+module.exports = {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",

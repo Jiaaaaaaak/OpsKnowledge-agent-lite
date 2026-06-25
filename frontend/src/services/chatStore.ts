@@ -41,25 +41,48 @@ export function saveDraft(projectId: string, partial: Partial<ChatDraft>) {
   localStorage.setItem(getDraftKey(projectId), JSON.stringify({ ...cur, ...partial }));
 }
 
-// ── 前端問答快取：相同 文件數+模式+topK+問題 已答過就重用，省一次後端往返 ──
-// docCount 納入 key → 上傳新文件後該專案快取自然失效。
+// ── 前端問答快取：相同條件已答過就重用，省一次後端往返 ──────────────────────
+// 失效策略（避免回舊答案）：key 納入
+//   - CACHE_VERSION：prompt / 檢索策略改版時 bump，整批快取失效；
+//   - mode（目前固定 agent）；topK；
+//   - docsSig：文件內容簽章（每份文件 id:chunk_count 排序後串接）。只用文件「數量」會在
+//     「刪一份再上傳一份」這種數量不變、內容已變的情況回舊答案；用簽章可正確失效。
+// 另以 CACHE_TTL_MS 為每筆加上時效，讀取時順手剔除過期項。
+const CACHE_VERSION = 'v2';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 小時
+
+interface QaCacheEntry {
+  answer: string;
+  citations: any[];
+  ts: number;
+}
+
 function qaCacheKey(projectId: string) {
   return `opsknowledge_qa_cache_${projectId}`;
 }
-function readQaCache(projectId: string): Record<string, { answer: string; citations: any[] }> {
+// 讀取時剔除過期項；同時容忍舊格式（無 ts）→ 視為過期丟棄。
+function readQaCache(projectId: string): Record<string, QaCacheEntry> {
+  let raw: Record<string, QaCacheEntry>;
   try {
-    return JSON.parse(localStorage.getItem(qaCacheKey(projectId)) || '{}');
+    raw = JSON.parse(localStorage.getItem(qaCacheKey(projectId)) || '{}');
   } catch {
     return {};
   }
+  const now = Date.now();
+  const fresh: Record<string, QaCacheEntry> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v && typeof v.ts === 'number' && now - v.ts < CACHE_TTL_MS) fresh[k] = v;
+  }
+  return fresh;
 }
 function writeQaCache(projectId: string, key: string, value: { answer: string; citations: any[] }) {
   const cache = readQaCache(projectId);
-  cache[key] = value;
+  cache[key] = { ...value, ts: Date.now() };
   localStorage.setItem(qaCacheKey(projectId), JSON.stringify(cache));
 }
-function makeQaKey(docCount: number, topK: number, question: string) {
-  return `${docCount}|${topK}|${question.trim()}`;
+// docsSig：文件內容簽章（呼叫端以 id:chunk_count 排序串接傳入）。mode 目前固定 agent。
+function makeQaKey(docsSig: string, topK: number, question: string) {
+  return `${CACHE_VERSION}|agent|${topK}|${docsSig}|${question.trim()}`;
 }
 
 // ── 進行中請求（in-memory，per project）+ 訂閱 ──────────────────────────
@@ -94,7 +117,7 @@ function nextId(offset = 0) {
 // 即使元件卸載，promise 仍會完成、把答案寫進草稿並 emit 通知當前掛載的頁面。
 export function submitChat(
   projectId: string,
-  opts: { question: string; topK: number; docCount: number },
+  opts: { question: string; topK: number; docsSig: string },
 ): void {
   const userText = opts.question.trim();
   if (!userText || pending.has(projectId)) return;
@@ -108,7 +131,7 @@ export function submitChat(
   emit();
 
   // 快取命中：直接重用先前答案，不打後端。
-  const cacheKey = makeQaKey(opts.docCount, opts.topK, userText);
+  const cacheKey = makeQaKey(opts.docsSig, opts.topK, userText);
   const cached = readQaCache(projectId)[cacheKey];
   if (cached) {
     saveDraft(projectId, {

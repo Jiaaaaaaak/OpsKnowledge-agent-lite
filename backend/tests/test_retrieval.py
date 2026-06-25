@@ -84,6 +84,21 @@ class TestKeywordRetriever:
         assert hits[0]["score"] == 0.42
         assert hits[0]["metadata"]["filename"] == "postgres.pdf"
 
+    def test_search_includes_trigram_substring_match_for_cjk_and_exact_terms(self):
+        # 為什麼：english FTS parser 無法切分無空格中文，純靠 tsvector 會漏掉中文關鍵詞 /
+        # 錯誤碼等 exact term。keyword 檢索必須同時做語言中性的子字串比對（pg_trgm ILIKE）。
+        result = MagicMock()
+        result.fetchall.return_value = []
+        db = MagicMock()
+        db.execute.return_value = result
+
+        KeywordRetriever(db_session=db).search("proj-1", "錯誤碼", top_k=5)
+
+        sql = str(db.execute.call_args.args[0])
+        assert "content ILIKE '%' || :query || '%'" in sql
+        # 子字串命中必須是召回條件之一（OR），不只是排序加權。
+        assert "OR" in sql and "dc.search_vector @@ query.q" in sql
+
 
 class TestHybridRetrievalService:
     def test_search_fuses_both_arms_and_reports_breakdown(self):

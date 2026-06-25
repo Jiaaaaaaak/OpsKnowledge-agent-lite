@@ -35,6 +35,11 @@ class KeywordRetriever:
             db.close()
 
     def search(self, project_id: str, query: str, top_k: int = 5) -> list[dict]:
+        # 兩路並用：
+        #  1) tsvector 全文比對（英文 token、stemming）。
+        #  2) pg_trgm 子字串比對（content ILIKE '%term%'）——語言中性，補足 english parser
+        #     無法切分中文的弱點，讓中文關鍵詞 / 錯誤碼 / 指令這類 exact term 也能穩定命中。
+        # 排序：tsvector rank + 精確子字串命中加權，讓 exact term 命中排前。
         search_sql = text(
             """
             WITH query AS (
@@ -47,12 +52,16 @@ class KeywordRetriever:
                 dc.document_id::text AS document_id,
                 d.filename AS filename,
                 dc.chunk_index AS chunk_index,
-                ts_rank_cd(dc.search_vector, query.q) AS rank
+                ts_rank_cd(dc.search_vector, query.q)
+                    + CASE WHEN dc.content ILIKE '%' || :query || '%' THEN 1.0 ELSE 0 END AS rank
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             CROSS JOIN query
             WHERE d.project_id = CAST(:project_id AS uuid)
-              AND dc.search_vector @@ query.q
+              AND (
+                  dc.search_vector @@ query.q
+                  OR dc.content ILIKE '%' || :query || '%'
+              )
             ORDER BY rank DESC, dc.chunk_index ASC
             LIMIT :top_k
             """
