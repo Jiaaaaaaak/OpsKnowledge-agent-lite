@@ -13,6 +13,7 @@ from app.services.llm_service import (
     detect_language,
     format_citations,
     get_llm_provider,
+    to_traditional,
     translate_snippet,
 )
 from app.services.reranker_service import get_reranker_provider
@@ -61,6 +62,7 @@ def run_rag_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> ChatR
     usage: dict = {}
     try:
         answer, usage = llm.complete(system_prompt, body.question)
+        answer = to_traditional(answer)  # 小模型常輸出簡體 → 統一轉繁體（台灣）
         llm_status = "success"
     except Exception as exc:
         llm_error = str(exc)

@@ -21,6 +21,7 @@ from app.services.llm_service import (
     detect_language,
     format_citations,
     get_llm_provider,
+    to_traditional,
     translate_snippet,
 )
 from app.services.retrieval import get_retrieval_service
@@ -72,7 +73,8 @@ what to search for, how many times, and which strategy:
 - Multi-part questions -> issue several focused search calls.
 
 Rules:
-- Respond in the same language as the user's question.
+- Respond in the same language as the user's question. For any Chinese question, \
+answer in Traditional Chinese (Taiwan), never Simplified Chinese.
 - Answer ONLY using information from the search results. Never invent commands, file \
 paths, configurations, or procedures.
 - If the results do not contain the answer, say exactly: "The document does not contain \
@@ -166,6 +168,7 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
 
     if not answer.strip():
         answer = "The document does not contain enough information to answer this question."
+    answer = to_traditional(answer)  # 小模型常輸出簡體 → 統一轉繁體（台灣）
 
     total_ms = int((time.monotonic() - total_start) * 1000)
 

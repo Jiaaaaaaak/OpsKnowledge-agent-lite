@@ -1,11 +1,35 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+_opencc_converter = None
+_opencc_unavailable = False
+
+
+def to_traditional(text: str) -> str:
+    """簡體中文 → 繁體（台灣用語）。小模型常輸出簡體，這裡以 OpenCC 確定性轉換保證繁體。
+    只影響簡體漢字，ASCII / 繁體 / 指令不受影響，可安全套用於任意輸出；OpenCC 不在時降級為原文。"""
+    global _opencc_converter, _opencc_unavailable
+    if not text or _opencc_unavailable:
+        return text
+    if _opencc_converter is None:
+        try:
+            import opencc
+
+            _opencc_converter = opencc.OpenCC("s2twp")
+        except Exception:
+            logger.warning("opencc 不可用，略過簡轉繁（請確認 requirements 的 opencc 已安裝）")
+            _opencc_unavailable = True
+            return text
+    return _opencc_converter.convert(text)
 
 
 @dataclass
@@ -70,8 +94,9 @@ You are a technical support assistant for IT operations.
 Answer ONLY using the context provided below. Do not draw on any external knowledge.
 
 Rules:
-- Respond in the same language as the user's question (e.g. answer a Traditional \
-Chinese question in Traditional Chinese), even when the context is in another language.
+- Respond in the same language as the user's question, even when the context is in \
+another language. For any Chinese question, answer in Traditional Chinese (Taiwan), \
+never Simplified Chinese.
 - If the context contains the answer, give a concise response; use bullet points for \
 step-by-step procedures.
 - If the context does not contain enough information, say exactly: \
@@ -110,7 +135,9 @@ def translate_snippet(
         f"{target_name}. Output ONLY the translation, with no quotes, labels, or commentary."
     )
     answer, _ = (provider or get_llm_provider()).complete(system_prompt, text)
-    return answer.strip()
+    result = answer.strip()
+    # 目標為中文時統一轉繁體，避免小模型輸出簡體。
+    return to_traditional(result) if target_language == "zh" else result
 
 
 class LLMProvider(ABC):
