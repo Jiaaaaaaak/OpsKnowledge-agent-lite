@@ -26,8 +26,8 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # 上傳限制：避免大檔一次讀進記憶體後拖垮 PDF parse / OCR / embedding。
-    max_upload_mb: int = 20                   # 單檔大小上限（MB）
-    max_pdf_pages: int = 500                  # 單份 PDF 頁數上限
+    max_upload_mb: int = 100                  # 單檔大小上限（MB）
+    max_pdf_pages: int = 700                  # 單份 PDF 頁數上限
     max_chunks_per_document: int = 5000       # 單份文件可產生的 chunk 數上限
 
     # PostgreSQL
