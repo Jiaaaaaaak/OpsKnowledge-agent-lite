@@ -47,7 +47,10 @@ class Settings(BaseSettings):
     # Redis / session
     redis_url: str = "redis://localhost:6379/0"
     session_cookie_name: str = "opsweave_session"
-    session_cookie_secure: bool = False
+    # session cookie 內含原始 session token（bearer），預設 secure=True：未設環境變數的
+    # 正式部署也不會用明文 HTTP 傳遞 token。本機 HTTP 開發以 .env 設 SESSION_COOKIE_SECURE=false
+    # 覆蓋（localhost 仍被瀏覽器視為 secure context，多數情境不需關閉）。
+    session_cookie_secure: bool = True
     session_cookie_samesite: str = "lax"
     session_ttl_hours: int = 24
 

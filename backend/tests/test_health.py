@@ -12,7 +12,9 @@ def test_opsweave_settings_expose_redis_and_secure_cookie_defaults():
     assert cfg.app_name == "OpsWeave"
     assert cfg.redis_url == "redis://localhost:6379/0"
     assert cfg.session_cookie_name == "opsweave_session"
-    assert cfg.session_cookie_secure is False
+    # 程式預設 secure-by-default：session cookie 內含 bearer token，未設環境變數的正式
+    # 部署也不得用明文 HTTP 傳遞。本機 HTTP 開發由 .env 設 SESSION_COOKIE_SECURE=false 覆蓋。
+    assert cfg.session_cookie_secure is True
     assert cfg.session_cookie_samesite == "lax"
     assert cfg.session_ttl_hours == 24
 
