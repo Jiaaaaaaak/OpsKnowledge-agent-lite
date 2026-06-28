@@ -2,6 +2,8 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || '/api',
+  // 認證採伺服器端 session + HTTP-only cookie，必須帶上 cookie 才能維持登入狀態。
+  withCredentials: true,
 });
 
 const uploadTimeoutMs = Number(import.meta.env.VITE_UPLOAD_TIMEOUT_MS || 600000);
@@ -17,6 +19,19 @@ api.interceptors.response.use(
 // Helper to bypass AxiosResponse type inference
 const get = async (url: string, config?: any): Promise<any> => api.get(url, config);
 const post = async (url: string, data?: any, config?: any): Promise<any> => api.post(url, data, config);
+
+// ── Auth ─────────────────────────────────────────────────────
+export interface Administrator {
+  id: string;
+  username: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export const getCurrentAdministrator = (): Promise<Administrator> => get('/auth/me');
+export const login = (username: string, password: string): Promise<Administrator> =>
+  post('/auth/login', { username, password });
+export const logout = (): Promise<{ message: string }> => post('/auth/logout');
 
 // ── Projects ─────────────────────────────────────────────────
 export const listProjects = () => get('/projects/');
