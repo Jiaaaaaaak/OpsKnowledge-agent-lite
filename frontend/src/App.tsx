@@ -4,9 +4,9 @@ import { ProjectProvider } from './context/ProjectContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import AppLayout from './components/layout/AppLayout';
+import DashboardPage from './pages/DashboardPage';
 import ProjectPage from './pages/ProjectPage';
 import AgentRunsPage from './pages/AgentRunsPage';
-import SystemStatusPage from './pages/SystemStatusPage';
 import KnowledgeWorkflowPage from './pages/KnowledgeWorkflowPage';
 
 function App() {
@@ -24,12 +24,12 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/projects" replace />} />
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
               <Route path="projects" element={<ProjectPage />} />
               <Route path="document-upload" element={<Navigate to="/knowledge/workflow" replace />} />
               <Route path="knowledge/workflow" element={<KnowledgeWorkflowPage />} />
               <Route path="agent-runs" element={<AgentRunsPage />} />
-              <Route path="status" element={<SystemStatusPage />} />
             </Route>
           </Routes>
         </Router>

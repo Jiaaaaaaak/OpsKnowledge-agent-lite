@@ -57,7 +57,7 @@ def health_check(response: Response) -> HealthResponse:
 
 
 @router.get(
-    "/api/operations/health",
+    "/operations/health",
     response_model=OperationalHealthResponse,
     tags=["Health"],
 )

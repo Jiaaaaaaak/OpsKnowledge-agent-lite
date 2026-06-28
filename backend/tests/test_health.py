@@ -175,7 +175,7 @@ def test_pulse_failure_degrades_to_none_without_raising(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_operations_health_requires_auth(client):
-    resp = await client.get("/api/operations/health")
+    resp = await client.get("/operations/health")
     assert resp.status_code == 401
 
 
@@ -186,7 +186,7 @@ async def test_operations_health_returns_aggregate_for_admin(client, monkeypatch
         "/auth/bootstrap", json={"username": "root", "password": "s3cret-pass"}
     )
 
-    resp = await client.get("/api/operations/health")
+    resp = await client.get("/operations/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"

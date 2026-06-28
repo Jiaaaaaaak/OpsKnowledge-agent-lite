@@ -33,6 +33,27 @@ export const login = (username: string, password: string): Promise<Administrator
   post('/auth/login', { username, password });
 export const logout = (): Promise<{ message: string }> => post('/auth/logout');
 
+// ── Operational health（需登入）─────────────────────────────────
+export interface OperationalHealth {
+  status: string;
+  services: {
+    api: string;
+    database: string;
+    vector: string;
+    redis: string;
+  };
+  pulse: {
+    cpu_percent: number | null;
+    memory_percent: number | null;
+    disk_percent: number | null;
+    uptime_seconds: number | null;
+  };
+  checked_at: string;
+}
+
+export const getOperationalHealth = (): Promise<OperationalHealth> =>
+  get('/operations/health');
+
 // ── Projects ─────────────────────────────────────────────────
 export const listProjects = () => get('/projects/');
 export const createProject = (name: string, description?: string) => 
