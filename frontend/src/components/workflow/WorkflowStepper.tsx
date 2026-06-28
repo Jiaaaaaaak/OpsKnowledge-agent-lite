@@ -31,7 +31,7 @@ export function WorkflowStepper({ steps, onStepClick }: WorkflowStepperProps) {
               type="button"
               disabled={!clickable}
               onClick={() => clickable && onStepClick?.(step.id)}
-              className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+              className={`flex h-full w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
                 isCurrent
                   ? 'border-indigo-300 bg-indigo-50'
                   : isComplete
@@ -66,9 +66,10 @@ export function WorkflowStepper({ steps, onStepClick }: WorkflowStepperProps) {
                 >
                   {step.label}
                 </span>
-                {step.description && (
-                  <span className="block truncate text-xs text-slate-500">{step.description}</span>
-                )}
+                {/* 描述行永遠保留高度（無內容時放不可見佔位），讓三個方塊不因文字內容多寡而高度不一 */}
+                <span className="block truncate text-xs text-slate-500">
+                  {step.description || ' '}
+                </span>
               </span>
             </button>
           </li>
