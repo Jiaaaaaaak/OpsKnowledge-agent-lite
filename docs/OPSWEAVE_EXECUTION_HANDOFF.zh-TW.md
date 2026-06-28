@@ -3,7 +3,7 @@
 [English](OPSWEAVE_EXECUTION_HANDOFF.md) | 繁體中文
 
 更新日期：2026-06-28  
-文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）、Task 4（營運健康）、Task 5（React 登入邊界）、Task 6（Bento 儀表板與固定狀態列）已提交，下一個待辦為 Task 7。
+文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3–7 皆已提交——**foundation 里程碑（Task 1–7）已完成**。接下來是路線圖上的較大里程碑（見 roadmap 文件）。
 
 ## 1. 專案目標
 
@@ -59,13 +59,13 @@ git log --oneline --decorate -12
 
 ```text
 ## feat/opsweave-foundation
-HEAD = d27bee5（Task 6 已提交）
+HEAD = 238aced（Task 7 已提交——foundation 完成）
 ```
 
 也就是說：
 
-- `d27bee5` 是目前最後一個已提交 commit（Task 6：Bento 儀表板與固定狀態列）
-- Task 3–6 已完整提交，worktree 沒有 Task 3/4/5/6 殘留
+- `238aced` 是目前最後一個已提交 commit（Task 7：foundation 驗證 + 文件）
+- Task 3–7 已完整提交，worktree 沒有 foundation 任務殘留
 - 唯一未提交的是這兩份 handoff 文件（正在更新中）
 
 原始 checkout 仍有使用者未提交文件：
@@ -320,6 +320,46 @@ git diff --check：clean
 live stack：經代理驗證 login + GET /operations/health
 ```
 
+### Task 7：整體 stack 驗證與文件
+
+已提交 commit：
+
+```text
+238aced docs: 完成 OpsWeave 平台基礎驗證流程
+```
+
+已完成內容：
+
+- `LoginPage.tsx`：依 `/auth/status` 的 `bootstrap_required` 切換「建立管理員
+  （bootstrap）」與「登入」；狀態確定前不渲染表單（無閃動、e2e 可穩定定位）。
+  `api.ts` 新增 `getAuthStatus` + `bootstrap`；`AuthContext` 新增 `bootstrap`
+- `DashboardPage` 標題為 `Dashboard`
+- Playwright e2e（`frontend/e2e/admin-foundation.spec.ts`、`playwright.config.ts`、
+  `@playwright/test@1.53.1`、`test:e2e`）：bootstrap → Dashboard → 展開狀態列 →
+  驗證 PostgreSQL/Redis，並含登出再登入。**idempotent**（無管理員時 bootstrap、
+  已存在時登入，同一組固定憑證），可重複執行
+- `vite.config.js` 把 vitest 範圍限定 `src/`；`e2e/` 交由 Playwright；
+  `test-results/` 已 gitignore
+- README／README.zh-TW／Makefile 品牌改為 OpsWeave（保留 `make clean` 破壞性確認）
+
+審查：規格——無 Critical/Important（所有 e2e 選擇器皆與實際畫面字串吻合）；
+品質——無 Critical，一個 Important（e2e 非 idempotent）已用 bootstrap-或-login 設計解決。
+
+既有驗證結果（live stack）：
+
+```text
+docker compose config --quiet：exit 0
+backend 完整 suite：239 passed
+frontend 單元：13 passed
+npm run build：exit 0
+Playwright e2e：2 passed（重跑亦通過——idempotent）
+GET /health：200；backend/postgres/redis healthy
+```
+
+注意：e2e 的 bootstrap 路徑在「首次」執行需資料庫無管理員；重跑會走登入路徑。要重置成
+全新 bootstrap 狀態：
+`docker compose exec -T postgres psql -U opsuser -d opsweave -c "DELETE FROM administrators;"`。
+
 ## 5. 已知 baseline 問題
 
 共享 venv 組合：
@@ -344,21 +384,18 @@ AnyIO 4.13.0
 
 ## 6. 後續執行順序
 
-### 6.1 下一個：Task 7
+### 6.1 下一個：路線圖里程碑（foundation 已完成）
 
-Task 3–6 已完成並提交（`d2242c8`、`7b19d1e`、`4999a4e`、`d27bee5`）。接著依
-implementation plan 進行 Task 7（整體 stack 驗證與文件：full-stack 跑通、e2e、文件）。
-注意：本機 live stack 走 Docker Desktop，dev 容器在 WSL2 下不會穩定 hot-reload，改完程式
-請 `docker compose restart backend frontend`。狀態列切換鈕會顯示 `系統正常／系統降級`、
-細節面板顯示 `PostgreSQL`——正是 Task 7 e2e 會斷言的字串。
+foundation（Task 1–7）已完成並提交（HEAD 為 `238aced`）。接下來是較大的路線圖里程碑——
+見 `docs/superpowers/plans/2026-06-28-opsweave-roadmap.zh-TW.md`。每個里程碑同樣走：
+TDD → 規格審查 → 品質審查 → 提交 → 更新本交接文件。
 
-### 6.2 剩餘 foundation 任務
+本機操作注意：live stack 走 Docker Desktop，dev 容器在 WSL2 下不會穩定 hot-reload，改完
+程式請 `docker compose restart backend frontend`。舊／重複的 compose stack 可能蓋住主機
+8000/8501 埠——用 `docker compose ps` 確認，並確認 `curl localhost:8000/openapi.json`
+的 title 是 `OpsWeave`。
 
-剩餘 foundation 任務：
-
-```text
-Task 7：整體 stack 驗證與文件
-```
+### 6.2 foundation 之後的大項
 
 foundation 之後的大項：
 
@@ -383,12 +420,13 @@ Operational Completion
 - 不覆蓋原始 checkout 的未提交文件
 - 宣告完成前必須重新執行驗證命令
 
-續作時先做這三件事：
+續作時先做這幾件事：
 
-1. 確認 `HEAD` 為 `d27bee5`，worktree 沒有 Task 3/4/5/6 殘留
+1. 確認 `HEAD` 為 `238aced`；foundation（Task 1–7）已完成
 2. backend 測試環境需 `argon2-cffi`、`pytest_asyncio`、`redis`、`psutil`；
-   前端測試環境需在 `frontend/` 執行 `npm install`
-3. 依 implementation plan 開始 Task 7
+   前端測試環境需在 `frontend/` 執行 `npm install`，e2e 另需
+   `npx playwright install chromium`
+3. 從 roadmap 文件挑下一個里程碑
 
 ## 8. 建議恢復提示詞
 
@@ -396,6 +434,7 @@ Operational Completion
 
 ```text
 請依 docs/OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md 繼續，分支 feat/opsweave-foundation。
-Task 3–6 已提交（d2242c8、7b19d1e、4999a4e、d27bee5）。開始 Task 7
-（整體 stack 驗證與文件），提交前先做規格審查與品質審查。
+foundation（Task 1–7）已完成（HEAD 238aced）。從
+docs/superpowers/plans/2026-06-28-opsweave-roadmap.zh-TW.md 挑下一個里程碑，
+依 TDD → 規格審查 → 品質審查 → 提交。
 ```

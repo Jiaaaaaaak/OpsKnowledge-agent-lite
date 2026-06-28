@@ -5,8 +5,8 @@ English | [繁體中文](OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md)
 Updated: 2026-06-28  
 Purpose: this is the single handoff source for continuing work on
 `feat/opsweave-foundation`. It reflects the actual current worktree state.
-Tasks 3 (auth), 4 (operational health), 5 (React login boundary) and 6 (Bento
-dashboard and sticky status bar) are committed; next is Task 7.
+Tasks 3–7 are committed — **the foundation milestone (Tasks 1–7) is complete**.
+What follows are the larger roadmap milestones (see the roadmap doc).
 
 ## Project Goal
 
@@ -62,13 +62,13 @@ Actual current state:
 
 ```text
 ## feat/opsweave-foundation
-HEAD = d27bee5 (Task 6 committed)
+HEAD = 238aced (Task 7 committed — foundation complete)
 ```
 
 This means:
 
-- `d27bee5` is the latest committed change (Task 6: Bento dashboard + status bar)
-- Tasks 3–6 are fully committed; the worktree has no Task 3/4/5/6 leftovers
+- `238aced` is the latest committed change (Task 7: foundation verification + docs)
+- Tasks 3–7 are fully committed; the worktree has no foundation-task leftovers
 - the only uncommitted files are these two handoff docs (being updated now)
 
 Do not modify or commit the user-owned files in the original checkout:
@@ -340,6 +340,49 @@ git diff --check: clean
 live stack: login + GET /operations/health verified through the proxy
 ```
 
+### Task 7: Verify the Foundation as One Stack
+
+Commit:
+
+```text
+238aced docs: 完成 OpsWeave 平台基礎驗證流程
+```
+
+Delivered:
+
+- `LoginPage.tsx`: switches between administrator **bootstrap** and **login** by
+  `/auth/status` `bootstrap_required`; the form is gated on status resolving (no
+  flash, deterministic e2e). `api.ts` gains `getAuthStatus` + `bootstrap`;
+  `AuthContext` gains a `bootstrap` method
+- `DashboardPage` heading is `Dashboard`
+- Playwright e2e (`frontend/e2e/admin-foundation.spec.ts`, `playwright.config.ts`,
+  `@playwright/test@1.53.1`, `test:e2e` script): bootstrap → Dashboard → expand
+  status bar → assert PostgreSQL/Redis, plus logout→login. **Idempotent**
+  (bootstrap when no admin, otherwise login, fixed creds) so it can re-run
+- `vite.config.js` scopes vitest to `src/`; `e2e/` runs under Playwright;
+  `test-results/` is gitignored
+- README / README.zh-TW / Makefile rebranded to OpsWeave (`make clean`
+  confirmation kept)
+
+Reviews: spec — no Critical/Important (all e2e selectors verified against rendered
+strings). quality — no Critical; one Important (non-idempotent e2e) resolved by
+the bootstrap-or-login design.
+
+Recorded verification (live stack):
+
+```text
+docker compose config --quiet: exit 0
+backend full suite: 239 passed
+frontend unit: 13 passed
+npm run build: exit 0
+Playwright e2e: 2 passed (re-run also passed — idempotent)
+GET /health: 200; backend/postgres/redis healthy
+```
+
+Note: the e2e bootstrap path needs a DB with no administrator on its very first
+run; re-runs take the login path. To reset for a fresh bootstrap run:
+`docker compose exec -T postgres psql -U opsuser -d opsweave -c "DELETE FROM administrators;"`.
+
 ## Known Baseline Issue
 
 Shared local environment:
@@ -364,21 +407,20 @@ Testing rule for later work:
 
 ## Execution Order
 
-### Next: Task 7
+### Next: Roadmap milestones (foundation is done)
 
-Tasks 3–6 are complete and committed (`d2242c8`, `7b19d1e`, `4999a4e`, `d27bee5`).
-Start Task 7 (verify the foundation as one stack: full-stack run, e2e, and
-documentation) per the implementation plan. Note: the live stack on this machine
-uses Docker Desktop; the dev containers do not hot-reload reliably on WSL2, so
-`docker compose restart backend frontend` after code changes. The status bar
-toggle exposes `系統正常/系統降級` and the detail panel shows `PostgreSQL` — the
-strings the planned Task 7 e2e asserts.
+The foundation (Tasks 1–7) is complete and committed (`238aced` is HEAD). What
+follows is the larger roadmap — see
+`docs/superpowers/plans/2026-06-28-opsweave-roadmap.md`. Each milestone should
+follow the same loop: TDD → spec review → quality review → commit → update this
+handoff.
 
-### Remaining Foundation Tasks
-
-```text
-Task 7: full-stack verification and documentation
-```
+Operational note for this machine: the live stack uses Docker Desktop; dev
+containers do NOT hot-reload reliably on WSL2, so run
+`docker compose restart backend frontend` after editing code. Old/duplicate
+compose stacks can shadow host ports 8000/8501 — verify with
+`docker compose ps` and that `curl localhost:8000/openapi.json` reports title
+`OpsWeave`.
 
 Later milestones:
 
@@ -403,16 +445,17 @@ Operational Completion
 
 Resume with these checks:
 
-1. Confirm `HEAD` is `d27bee5` and the worktree has no Task 3/4/5/6 leftovers.
+1. Confirm `HEAD` is `238aced`; the foundation (Tasks 1–7) is complete.
 2. Backend test env needs `argon2-cffi`, `pytest_asyncio`, `redis`, `psutil`;
-   frontend test env needs `npm install` in `frontend/`.
-3. Begin Task 7 from the implementation plan.
+   frontend test env needs `npm install` in `frontend/` and, for e2e,
+   `npx playwright install chromium`.
+3. Pick the next roadmap milestone from the roadmap doc.
 
 ## Suggested Resume Prompt
 
 ```text
 Continue from docs/OPSWEAVE_EXECUTION_HANDOFF.md on feat/opsweave-foundation.
-Tasks 3–6 are committed (d2242c8, 7b19d1e, 4999a4e, d27bee5). Start Task 7
-(verify the foundation as one stack + documentation) using TDD where applicable,
-then run spec review and quality review before committing.
+The foundation (Tasks 1–7) is complete (HEAD 238aced). Pick the next roadmap
+milestone from docs/superpowers/plans/2026-06-28-opsweave-roadmap.md and follow
+TDD → spec review → quality review → commit.
 ```
