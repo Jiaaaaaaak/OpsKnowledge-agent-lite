@@ -283,12 +283,26 @@ class OllamaLLMProvider(LLMProvider):
                 f"Ollama 回傳錯誤狀態 {exc.response.status_code}（model={self._model}）："
                 f"請確認模型已下載（執行 `ollama pull {self._model}`）。"
             ) from exc
-        except httpx.RequestError as exc:
-            # 連不上服務本身
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # 連不上服務本身（拒絕連線或連線階段逾時）
             raise RuntimeError(
                 f"無法連線到 Ollama（{url}）：請確認 Ollama 服務已啟動，"
                 f"Docker Compose 可執行 `docker compose ps ollama` 檢查狀態，"
                 f"且 OLLAMA_BASE_URL 設定正確。原始錯誤：{exc}"
+            ) from exc
+        except httpx.TimeoutException as exc:
+            # 連得上服務，但在 timeout 內沒回應：通常是模型在時限內未完成載入或推論
+            # （模型過大、主機記憶體不足、冷啟動）。服務本身是好的，別誤導使用者去重啟。
+            raise RuntimeError(
+                f"Ollama 請求逾時（{url}，timeout={self._timeout}s，model={self._model}）："
+                f"服務有回應但模型在時限內未完成載入或推論，常見原因是模型過大、"
+                f"主機記憶體不足或冷啟動。可改用較小模型、調高 OLLAMA_TIMEOUT_SECONDS，"
+                f"或以 `ollama ps` 確認模型是否成功駐留記憶體。原始錯誤：{exc}"
+            ) from exc
+        except httpx.RequestError as exc:
+            # 其他傳輸層錯誤
+            raise RuntimeError(
+                f"呼叫 Ollama 失敗（{url}）。原始錯誤：{exc}"
             ) from exc
 
         data = response.json()
@@ -320,9 +334,20 @@ class OllamaLLMProvider(LLMProvider):
                 f"Ollama 回傳錯誤狀態 {exc.response.status_code}（model={self._model}）："
                 f"請確認模型已下載且支援 tool-calling（如 qwen2.5）。"
             ) from exc
-        except httpx.RequestError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise RuntimeError(
                 f"無法連線到 Ollama（{url}）：請確認 Ollama 服務已啟動。原始錯誤：{exc}"
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"Ollama 請求逾時（{url}，timeout={self._timeout}s，model={self._model}）："
+                f"服務有回應但模型在時限內未完成載入或推論，常見原因是模型過大、"
+                f"主機記憶體不足或冷啟動。可改用較小模型、調高 OLLAMA_TIMEOUT_SECONDS，"
+                f"或以 `ollama ps` 確認模型是否成功駐留記憶體。原始錯誤：{exc}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(
+                f"呼叫 Ollama 失敗（{url}）。原始錯誤：{exc}"
             ) from exc
 
         data = response.json()

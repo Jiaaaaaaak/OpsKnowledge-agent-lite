@@ -207,6 +207,17 @@ class TestOllamaLLMProvider:
             with pytest.raises(RuntimeError, match="無法連線到 Ollama"):
                 provider.complete("system prompt", "user question")
 
+    def test_read_timeout_distinguished_from_unreachable(self):
+        # 服務活著但模型在時限內沒載入完（ReadTimeout）時，訊息必須指向「逾時」，
+        # 不能誤報成「無法連線」害使用者白白去重啟服務。這是兩種不同的失敗邊界。
+        import httpx
+
+        provider = OllamaLLMProvider(base_url="http://localhost:11434")
+        with patch("httpx.post", side_effect=httpx.ReadTimeout("timed out")):
+            with pytest.raises(RuntimeError, match="逾時") as exc_info:
+                provider.complete("system prompt", "user question")
+        assert "無法連線" not in str(exc_info.value)
+
     def test_http_error_raises_clear_error(self):
         # 模型未下載 → Ollama 回非 2xx；錯誤訊息要引導使用者 ollama pull
         import httpx
