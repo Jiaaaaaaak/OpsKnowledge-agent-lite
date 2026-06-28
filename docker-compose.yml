@@ -4,7 +4,7 @@
 #   frontend : 8501 → 8501  (React UI — start here)
 #   backend  : 8000 → 8000  (FastAPI — http://localhost:8000/docs)
 #   postgres : 5432 → 5432  (Postgres 16 + pgvector)
-#   redis    : 6379 → 6379  (Redis)
+#   redis    : internal-only (no host port)
 #   ollama   : 11434 → 11434 (local LLM server)
 #
 # Persistence: postgres_data and redis_data named volumes survive compose restarts.

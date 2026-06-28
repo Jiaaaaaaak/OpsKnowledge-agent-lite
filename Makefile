@@ -74,7 +74,7 @@ test-local:
 	cd backend && . .venv/bin/activate && PYTHONPATH=. pytest tests/ -q
 
 psql:
-	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-opsweave} -d $${POSTGRES_DB:-opsweave}
+	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-opsuser} -d $${POSTGRES_DB:-opsweave}
 
 pull-ollama:
 	$(COMPOSE) up -d ollama
