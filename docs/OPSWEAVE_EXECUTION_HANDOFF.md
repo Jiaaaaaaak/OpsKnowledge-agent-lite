@@ -5,7 +5,8 @@ English | [繁體中文](OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md)
 Updated: 2026-06-28  
 Purpose: this is the single handoff source for continuing work on
 `feat/opsweave-foundation`. It reflects the actual current worktree state.
-Task 3 (auth) and Task 4 (operational health) are committed; next is Task 5.
+Tasks 3 (auth), 4 (operational health) and 5 (React login boundary) are
+committed; next is Task 6.
 
 ## Project Goal
 
@@ -61,13 +62,13 @@ Actual current state:
 
 ```text
 ## feat/opsweave-foundation
-HEAD = 7b19d1e (Task 4 committed)
+HEAD = 4999a4e (Task 5 committed)
 ```
 
 This means:
 
-- `7b19d1e` is the latest committed change (Task 4: operational health)
-- Tasks 3 and 4 are fully committed; the worktree has no Task 3/4 leftovers
+- `4999a4e` is the latest committed change (Task 5: React login boundary)
+- Tasks 3, 4 and 5 are fully committed; the worktree has no Task 3/4/5 leftovers
 - the only uncommitted files are these two handoff docs (being updated now)
 
 Do not modify or commit the user-owned files in the original checkout:
@@ -258,6 +259,44 @@ Reviews: spec — no Critical/Important; quality — no Critical, one Important
 (`_pulse()` unguarded) resolved, minors addressed (1s-timeout assertion, cpu
 priming, client close).
 
+### Task 5: React Authentication Boundary
+
+Commit:
+
+```text
+4999a4e feat: 建立 OpsWeave 前端登入邊界
+```
+
+Delivered (all under `frontend/src/`):
+
+- `context/AuthContext.tsx`: `AuthProvider` loads `GET /auth/me`, exposes
+  `administrator`, `loading`, `login`, `logout`; 401 treated as anonymous
+- `components/auth/ProtectedRoute.tsx`: waits during bootstrap, redirects
+  anonymous users to `/login`, renders the shell when authenticated
+- `pages/LoginPage.tsx`: username/password fields, generic invalid-credentials
+  alert, no token stored in web storage; redirects authenticated users to `/`
+- `services/api.ts`: axios `withCredentials: true`; `getCurrentAdministrator`,
+  `login`, `logout`
+- `App.tsx`: wrapped in `AuthProvider`, `/login` route, app shell under
+  `ProtectedRoute`; `App.test.tsx` updated to authenticate by default
+- `context/AuthContext.test.tsx`: anonymous-redirect, generic-alert, and
+  successful-login tests
+
+Reviews: spec — no Critical/Important; quality — no Critical/Important. Deferred
+minor: `logout` does not yet clear the persisted `ProjectContext` selection;
+handle when the logout button is wired in Task 6 (`logout` is not yet UI-reachable).
+
+Recorded verification:
+
+```text
+frontend: 6 tests passed (3 auth + 3 existing)
+tsc --noEmit: clean
+git diff --check: clean
+```
+
+Environment note: the frontend test env needs `npm install` in `frontend/`
+(no `node_modules` by default).
+
 ## Known Baseline Issue
 
 Shared local environment:
@@ -282,16 +321,17 @@ Testing rule for later work:
 
 ## Execution Order
 
-### Next: Task 5
+### Next: Task 6
 
-Tasks 3 and 4 are complete and committed (`d2242c8`, `7b19d1e`). Start Task 5
-(React authentication boundary) per the implementation plan, using a fresh
-implementation agent, TDD, then spec review and quality review before committing.
+Tasks 3, 4 and 5 are complete and committed (`d2242c8`, `7b19d1e`, `4999a4e`).
+Start Task 6 (Modern Bento dashboard and sticky status bar) per the
+implementation plan, using a fresh implementation agent, TDD, then spec review
+and quality review before committing. When wiring the logout button, also clear
+the persisted `ProjectContext` selection (deferred Task 5 minor).
 
 ### Remaining Foundation Tasks
 
 ```text
-Task 5: React authentication boundary
 Task 6: Modern Bento dashboard and sticky status bar
 Task 7: full-stack verification and documentation
 ```
@@ -319,16 +359,16 @@ Operational Completion
 
 Resume with these checks:
 
-1. Confirm `HEAD` is `7b19d1e` and the worktree has no Task 3/4 leftovers.
-2. Ensure the backend test environment has `argon2-cffi`, `pytest_asyncio`,
-   `redis`, and `psutil` installed.
-3. Begin Task 5 from the implementation plan.
+1. Confirm `HEAD` is `4999a4e` and the worktree has no Task 3/4/5 leftovers.
+2. Backend test env needs `argon2-cffi`, `pytest_asyncio`, `redis`, `psutil`;
+   frontend test env needs `npm install` in `frontend/`.
+3. Begin Task 6 from the implementation plan.
 
 ## Suggested Resume Prompt
 
 ```text
 Continue from docs/OPSWEAVE_EXECUTION_HANDOFF.md on feat/opsweave-foundation.
-Tasks 3 and 4 are committed (d2242c8, 7b19d1e). Start Task 5 (React
-authentication boundary) using TDD, then run spec review and quality review
-before committing.
+Tasks 3, 4 and 5 are committed (d2242c8, 7b19d1e, 4999a4e). Start Task 6
+(Modern Bento dashboard and sticky status bar) using TDD, then run spec review
+and quality review before committing.
 ```

@@ -3,7 +3,7 @@
 [English](OPSWEAVE_EXECUTION_HANDOFF.md) | 繁體中文
 
 更新日期：2026-06-28  
-文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）與 Task 4（營運健康）已提交，下一個待辦為 Task 5。
+文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）、Task 4（營運健康）、Task 5（React 登入邊界）已提交，下一個待辦為 Task 6。
 
 ## 1. 專案目標
 
@@ -59,13 +59,13 @@ git log --oneline --decorate -12
 
 ```text
 ## feat/opsweave-foundation
-HEAD = 7b19d1e（Task 4 已提交）
+HEAD = 4999a4e（Task 5 已提交）
 ```
 
 也就是說：
 
-- `7b19d1e` 是目前最後一個已提交 commit（Task 4：營運健康聚合）
-- Task 3、Task 4 已完整提交，worktree 沒有 Task 3/4 殘留
+- `4999a4e` 是目前最後一個已提交 commit（Task 5：React 登入邊界）
+- Task 3、Task 4、Task 5 已完整提交，worktree 沒有 Task 3/4/5 殘留
 - 唯一未提交的是這兩份 handoff 文件（正在更新中）
 
 原始 checkout 仍有使用者未提交文件：
@@ -247,6 +247,42 @@ git diff --check：clean
 審查：規格——無 Critical/Important；品質——無 Critical，一個 Important
 （`_pulse()` 未防護）已修，minor 也補（1 秒逾時斷言、cpu 預熱、關閉連線）。
 
+### Task 5：React 登入邊界
+
+已提交 commit：
+
+```text
+4999a4e feat: 建立 OpsWeave 前端登入邊界
+```
+
+已完成內容（均在 `frontend/src/`）：
+
+- `context/AuthContext.tsx`：`AuthProvider` 載入 `GET /auth/me`，提供
+  `administrator`、`loading`、`login`、`logout`；401 視為未登入
+- `components/auth/ProtectedRoute.tsx`：bootstrap 期間等待，未登入導向 `/login`，
+  已登入才渲染外殼
+- `pages/LoginPage.tsx`：帳號／密碼欄位、通用錯誤訊息、不在 web storage 存任何
+  token；已登入者導回 `/`
+- `services/api.ts`：axios `withCredentials: true`；`getCurrentAdministrator`、
+  `login`、`logout`
+- `App.tsx`：以 `AuthProvider` 包覆、新增 `/login` route、外殼置於
+  `ProtectedRoute`；`App.test.tsx` 預設視為已登入
+- `context/AuthContext.test.tsx`：未登入導向、通用錯誤、登入成功三項測試
+
+審查：規格——無 Critical/Important；品質——無 Critical/Important。延後的 minor：
+`logout` 尚未清除 `ProjectContext` 持久化的專案選擇，待 Task 6 接 logout 按鈕時處理
+（目前 `logout` 尚無 UI 入口）。
+
+既有驗證結果：
+
+```text
+frontend：6 tests passed（3 auth + 3 既有）
+tsc --noEmit：clean
+git diff --check：clean
+```
+
+環境注意事項：前端測試環境需在 `frontend/` 執行 `npm install`（預設無 `node_modules`）。
+
 ## 5. 已知 baseline 問題
 
 共享 venv 組合：
@@ -271,17 +307,18 @@ AnyIO 4.13.0
 
 ## 6. 後續執行順序
 
-### 6.1 下一個：Task 5
+### 6.1 下一個：Task 6
 
-Task 3、Task 4 已完成並提交（`d2242c8`、`7b19d1e`）。接著依 implementation plan
-進行 Task 5（React 登入邊界）：使用新的實作代理、走 TDD，提交前先做規格審查與品質審查。
+Task 3、Task 4、Task 5 已完成並提交（`d2242c8`、`7b19d1e`、`4999a4e`）。接著依
+implementation plan 進行 Task 6（Modern Bento Dashboard 與固定狀態列）：使用新的
+實作代理、走 TDD，提交前先做規格審查與品質審查。接 logout 按鈕時，記得一併清除
+`ProjectContext` 持久化的專案選擇（Task 5 延後的 minor）。
 
 ### 6.2 剩餘 foundation 任務
 
 剩餘 foundation 任務：
 
 ```text
-Task 5：React 登入邊界
 Task 6：Modern Bento Dashboard 與固定狀態列
 Task 7：整體 stack 驗證與文件
 ```
@@ -311,9 +348,10 @@ Operational Completion
 
 續作時先做這三件事：
 
-1. 確認 `HEAD` 為 `7b19d1e`，worktree 沒有 Task 3/4 殘留
-2. 確認 backend 測試環境已安裝 `argon2-cffi`、`pytest_asyncio`、`redis`、`psutil`
-3. 依 implementation plan 開始 Task 5
+1. 確認 `HEAD` 為 `4999a4e`，worktree 沒有 Task 3/4/5 殘留
+2. backend 測試環境需 `argon2-cffi`、`pytest_asyncio`、`redis`、`psutil`；
+   前端測試環境需在 `frontend/` 執行 `npm install`
+3. 依 implementation plan 開始 Task 6
 
 ## 8. 建議恢復提示詞
 
@@ -321,6 +359,6 @@ Operational Completion
 
 ```text
 請依 docs/OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md 繼續，分支 feat/opsweave-foundation。
-Task 3、Task 4 已提交（d2242c8、7b19d1e）。開始 Task 5（React 登入邊界），走 TDD，
-提交前先做規格審查與品質審查。
+Task 3、Task 4、Task 5 已提交（d2242c8、7b19d1e、4999a4e）。開始 Task 6
+（Modern Bento Dashboard 與固定狀態列），走 TDD，提交前先做規格審查與品質審查。
 ```
