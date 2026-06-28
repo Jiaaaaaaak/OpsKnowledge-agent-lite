@@ -6,6 +6,8 @@ from app.db.session import Base
 
 def test_all_expected_tables_are_registered() -> None:
     assert set(Base.metadata.tables) == {
+        "administrators",
+        "admin_sessions",
         "projects",
         "documents",
         "document_chunks",

@@ -1,5 +1,6 @@
 from app.models.agent import AgentRun, ToolCall
 from app.models.document import Document, DocumentChunk
+from app.models.identity import AdminSession, Administrator
 from app.models.project import Project
 
 __all__ = [
@@ -8,4 +9,6 @@ __all__ = [
     "DocumentChunk",
     "AgentRun",
     "ToolCall",
+    "Administrator",
+    "AdminSession",
 ]
