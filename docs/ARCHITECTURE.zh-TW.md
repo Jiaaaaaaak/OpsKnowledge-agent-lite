@@ -50,7 +50,7 @@ graph TD
 | `api/` | 路由定義、請求驗證、回應序列化 |
 | `services/document_service.py` | PDF 解析、分塊，接著嵌入並寫入 PostgreSQL + pgvector（透過注入的 `VectorStoreService`）；對掃描 / 影像頁有 OCR fallback |
 | `services/ocr_service.py` | 對「可抽取文字過少」的頁做 Tesseract OCR；lazy-import `pytesseract`/`pdf2image`，缺少時自動降級 |
-| `services/embedding_service.py` | `EmbeddingProvider` 介面與 `OpenAIEmbeddingProvider`；之後替換本地 embedding 的接點 |
+| `services/embedding_service.py` | `EmbeddingProvider` 介面與 OpenAI / Ollama（`bge-m3`，1024 維）/ Mock providers，由 `EMBEDDING_PROVIDER` 選擇 |
 | `services/vector_store.py` | 封裝 PostgreSQL + pgvector 的 `VectorStoreService`：upsert chunk 向量、以專案為範圍的相似度搜尋 |
 | `services/retrieval/` | 模組化 hybrid retrieval：pgvector 語意召回、PostgreSQL full-text 召回、reciprocal-rank fusion |
 | `services/reranker_service.py` | 選用第二階段 cross-encoder reranker，用於重排 fusion 後的候選 chunk |
@@ -82,9 +82,14 @@ POST /projects/{id}/upload/documents
   ├─ documents INSERT（filename, document_type="pdf", source_path,
   │    metadata.{page_count, ocr_page_count}）
   │
-  ├─ 逐頁 _chunk_text()  滑動視窗（chunk_size=1000, overlap=150）
+  ├─ 章節優先 _chunk_text_by_section()  對「合併後的全文」切塊
+  │    （chunk_size=800, overlap=100, min_chunk_size=100）— 非逐頁定長切
+  │    ├─ 依偵測到的標題切 section（Markdown /「一、」/ 1.1 / 羅馬 / SOP 關鍵字）；
+  │    │    section ≤ chunk_size 保持完整，較大者退回滑動視窗
+  │    ├─ 丟棄幾乎只剩 overlap 的重複塊；相鄰短塊往前合併
   │    └─ 每個 chunk（明確指定 uuid）→ document_chunks INSERT
-  │         metadata: { filename, page_number, chunk_size }
+  │         metadata: { filename, page_number, chunk_size, section_title,
+  │                     section_level, char_start, char_end }
   │
   ├─ VectorStoreService.add_chunks()  嵌入所有 chunk → PostgreSQL + pgvector upsert
   │    ├─ id = document_chunks.id（PG 與 PostgreSQL + pgvector 使用相同 UUID）
@@ -97,8 +102,8 @@ POST /projects/{id}/upload/documents
 
 GET /projects/{id}/search?query=...&top_k=5
   └─ HybridRetrievalService.search(project_id, query, top_k)
-       ├─ VectorRetriever → 嵌入 query → pgvector cosine search
-       ├─ KeywordRetriever → PostgreSQL websearch_to_tsquery full-text search
+       ├─ VectorRetriever → 嵌入 query → pgvector cosine search（HNSW）
+       ├─ KeywordRetriever → tsvector 全文檢索 OR pg_trgm 子字串（ILIKE）— 支援中文／精確詞
        └─ ReciprocalRankFusion → 依 chunk_id 去重並回傳 top-k chunks
        每筆 hit：{ chunk_id, content, metadata, fusion_score, sources, scores }
        chunk_id 可 1:1 對回 PostgreSQL 的 document_chunks 列
@@ -162,6 +167,59 @@ POST /projects/{id}/agent-chat  { question, top_k }
   └─ 回傳 ChatResponse  { answer, citations[] }（shape 與 /chat 相同）
 ```
 
+## 檢索、排序與模型
+
+### 分塊（`document_service.py`）
+
+採章節優先，**非**定長切。各頁先合併成一份全文，再切：
+
+- **參數：** `chunk_size=800`、`overlap=100`、`min_chunk_size=100`（字元）。
+- **標題偵測（regex）：** Markdown `##`、中文「一、」、阿拉伯 `1.1`、羅馬 `II.`，以及 SOP 關鍵字（Purpose / Symptoms / Troubleshooting Steps / Resolution …）。
+- **流程：**
+  1. 用標題邊界把全文切成 section。
+  2. section ≤ `chunk_size` → 保持完整（一個章節即一個 chunk）。
+  3. section > `chunk_size` → 滑動視窗（`800` / overlap `100`），追蹤每個子 chunk 的 `char_start/char_end`。
+  4. **廢 chunk 過濾：** 非首個 chunk 若「新增內容」（`len − overlap`）低於 `min(min_chunk_size, overlap)` 即丟棄（去掉幾乎只剩 overlap 的重複塊）。
+  5. **相鄰短塊往前合併**，避免孤立的 100–250 字碎片。
+- 每個 chunk 記錄 `page_number`（用 char offset 反查）、`section_title/level`、`char_start/end`。
+
+### Hybrid 檢索（`retrieval/`）
+
+`HybridRetrievalService.search(strategy=…)` — agent 從三種策略中選擇：
+
+| strategy | 臂 | 適用 |
+|---|---|---|
+| `vector` | pgvector 語意 | 概念／語意題 |
+| `keyword` | 全文檢索 | 錯誤碼／指令／精確詞 |
+| `hybrid`（預設）| vector + keyword + RRF | 通用 |
+
+- **向量臂**（`vector_store.py`）：query embedding → 餘弦 `embedding <=> query`，走 **HNSW 索引**（`vector_cosine_ops`），以專案為範圍；`score = 1 − distance`。
+- **關鍵字臂**（`keyword_retriever.py`）：兩路 OR —
+  - tsvector 全文 `search_vector @@ websearch_to_tsquery('english', q)`（GIN 索引）；
+  - **pg_trgm 子字串** `content ILIKE '%q%'`（GIN trigram 索引）— 補 english parser 無法切分中文／精確詞的洞；排序用 `ts_rank_cd + 精確子字串命中加權`。
+  - 獨立降級：SQL 出錯 → 回空 + `keyword_status="fallback"`，不拖垮整個檢索。
+- **融合**（`fusion.py`）：Reciprocal Rank Fusion，`contribution = 1/(k+rank)`、`k=60`；同 chunk 跨臂分數相加，依 `(fusion_score, 命中來源數)` 排序取 `top_k`。
+
+### 重排 Rerank（`reranker_service.py`）
+
+選用的第二階段 **cross-encoder**，**預設關閉**（`RERANKER_ENABLED=false`）。
+
+- 開啟時：hybrid 多召回 **`RERANK_CANDIDATE_K=30`** 筆候選 → 打 TEI 容器 `/rerank` → **`BAAI/bge-reranker-v2-m3`** 對每個 `(query, document)` 配對算相關分（跨語效果遠勝純向量距離）→ 取 `top_k`。timeout 30s。
+- 優雅降級：TEI 連不上／模型未載入 → `RuntimeError` → 退回向量順序（`rerank_status="fallback"`）；關閉時用 `NoopRerankerProvider`（identity）。
+- ⚠️ **範圍落差：** rerank **只在 `/chat`** 跑。前端 UI 一律呼叫 **`/agent-chat`**，該路徑**不經過** reranker — 所以預設 demo UI 並未重排（且 reranker 預設也關）。把 rerank 接到 agent 路徑是已知待辦。
+
+### 模型（`.env.example` demo 預設）
+
+| 角色 | 模型 | 說明 |
+|---|---|---|
+| LLM | **qwen2.5:7b-instruct**（Ollama）| temp 0.1；支援 tool-calling（agent 需要）|
+| Embedding | **bge-m3**（Ollama）| 多語，**1024 維**，英文文件 + 中文問題 |
+| Reranker | **BAAI/bge-reranker-v2-m3**（TEI）| cross-encoder，預設關閉 |
+| OpenAI 模式 | gpt-4o-mini / text-embedding-3-small | 需 `OPENAI_API_KEY` |
+| Mock 模式 | MD5→種子→L2 單位向量 / 取首 chunk 片段 | 確定性、無金鑰、CI |
+
+向量維度 **1024** 是單一真實來源（`EMBEDDING_DIMENSIONS`）；DB 欄位與各 provider 都依此值。
+
 ## 連接埠對應
 
 | 服務 | 連接埠 |
@@ -211,7 +269,7 @@ class MockLLMProvider(LLMProvider):
 真實模型即可跑完。LLM 輸出的簡體中文（答案與 `zh` 翻譯）會以 OpenCC `s2twp` 正規化為
 繁體中文（台灣）。
 
-> **雲端 vs 地端的範圍：** `openai` 路徑用於低設定成本的快速 POC；`ollama` 路徑則為
-> 私有／地端情境預備好，讓 LLM 能在客戶網路內執行。注意目前這層抽象只涵蓋 **LLM**，
-> embedding 仍由 `EMBEDDING_PROVIDER`（`openai` / `mock`）決定，因此要做到完全地端，
-> 還需要一個本地 embedding provider（未來的 `EmbeddingProvider` 實作，模式與此相同）。
+> **雲端 vs 地端的範圍：** `openai` 路徑是低設定成本的快速 POC；`ollama` 路徑可完全在
+> 客戶網路內執行。同一套 provider 模式也涵蓋 embedding（`EMBEDDING_PROVIDER`：
+> `openai` / `ollama` / `mock`）— `OllamaEmbeddingProvider`（`bge-m3`）即可達成資料
+> 不離開主機的完全地端堆疊。

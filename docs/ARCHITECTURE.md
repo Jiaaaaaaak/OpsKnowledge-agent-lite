@@ -50,7 +50,7 @@ graph TD
 | `api/` | Route definitions, request validation, response serialization |
 | `services/document_service.py` | PDF parsing, chunking, then embedding + PostgreSQL + pgvector storage (via injected `VectorStoreService`); OCR fallback for scanned / image pages |
 | `services/ocr_service.py` | Tesseract OCR for pages with too little extractable text; lazy-imports `pytesseract`/`pdf2image` and degrades gracefully when absent |
-| `services/embedding_service.py` | `EmbeddingProvider` interface + `OpenAIEmbeddingProvider`; swap-in point for local embeddings |
+| `services/embedding_service.py` | `EmbeddingProvider` interface + OpenAI / Ollama (`bge-m3`, 1024-dim) / Mock providers, selected by `EMBEDDING_PROVIDER` |
 | `services/vector_store.py` | `VectorStoreService` wrapping PostgreSQL + pgvector: upsert chunk vectors, project-scoped similarity search |
 | `services/retrieval/` | Modular hybrid retrieval: pgvector dense recall, PostgreSQL full-text recall, reciprocal-rank fusion |
 | `services/reranker_service.py` | Optional second-stage cross-encoder reranker for fused retrieval candidates |
@@ -83,9 +83,14 @@ POST /projects/{id}/upload/documents
   ├─ documents INSERT (filename, document_type="pdf", source_path,
   │    metadata.{page_count, ocr_page_count})
   │
-  ├─ Per-page _chunk_text()  sliding window (chunk_size=1000, overlap=150)
+  ├─ Section-aware _chunk_text_by_section() over the JOINED full text
+  │    (chunk_size=800, overlap=100, min_chunk_size=100) — NOT fixed per-page slices
+  │    ├─ Split on detected headings (Markdown / 中文「一、」/ 1.1 / Roman / SOP keywords);
+  │    │    sections ≤ chunk_size stay whole, larger ones fall back to a sliding window
+  │    ├─ Drop overlap-only duplicate chunks; merge stray short chunks forward
   │    └─ Each chunk (explicit uuid) → document_chunks INSERT
-  │         metadata: { filename, page_number, chunk_size }
+  │         metadata: { filename, page_number, chunk_size, section_title,
+  │                     section_level, char_start, char_end }
   │
   ├─ VectorStoreService.add_chunks()  embed all chunks → PostgreSQL + pgvector upsert
   │    ├─ id = document_chunks.id  (same UUID in PG and PostgreSQL + pgvector)
@@ -98,8 +103,8 @@ POST /projects/{id}/upload/documents
 
 GET /projects/{id}/search?query=...&top_k=5
   └─ HybridRetrievalService.search(project_id, query, top_k)
-       ├─ VectorRetriever → embed query → pgvector cosine search
-       ├─ KeywordRetriever → PostgreSQL websearch_to_tsquery full-text search
+       ├─ VectorRetriever → embed query → pgvector cosine search (HNSW)
+       ├─ KeywordRetriever → tsvector FTS OR pg_trgm substring (ILIKE) — handles CJK / exact terms
        └─ ReciprocalRankFusion → de-duplicate by chunk_id and return top-k chunks
        each hit: { chunk_id, content, metadata, fusion_score, sources, scores }
        chunk_id maps 1:1 back to the document_chunks row in PostgreSQL
@@ -165,6 +170,59 @@ POST /projects/{id}/agent-chat  { question, top_k }
   └─ Return ChatResponse  { answer, citations[] }   (same shape as /chat)
 ```
 
+## Retrieval, Ranking & Models
+
+### Chunking (`document_service.py`)
+
+Section-aware, **not** fixed-length. Pages are joined into one full text, then split:
+
+- **Params:** `chunk_size=800`, `overlap=100`, `min_chunk_size=100` (characters).
+- **Heading detection (regex):** Markdown `##`, Chinese「一、」, numeric `1.1`, Roman `II.`, and SOP keywords (Purpose / Symptoms / Troubleshooting Steps / Resolution …).
+- **Algorithm:**
+  1. Split the full text on heading boundaries into sections.
+  2. Section ≤ `chunk_size` → kept whole (preserves a section as one chunk).
+  3. Section > `chunk_size` → sliding window (`800` / overlap `100`), tracking each sub-chunk's `char_start/char_end`.
+  4. **Drop waste chunks:** a non-first chunk whose *new* content (`len − overlap`) is below `min(min_chunk_size, overlap)` is discarded (removes overlap-only duplicates).
+  5. **Merge stray short chunks** forward to avoid isolated 100–250-char fragments.
+- Each chunk records `page_number` (resolved by char offset), `section_title/level`, `char_start/end`.
+
+### Hybrid retrieval (`retrieval/`)
+
+`HybridRetrievalService.search(strategy=…)` — three strategies the agent picks from:
+
+| strategy | arms | use |
+|---|---|---|
+| `vector` | pgvector dense | semantic / conceptual |
+| `keyword` | full-text | error codes / commands / exact terms |
+| `hybrid` (default) | vector + keyword + RRF | general |
+
+- **Vector arm** (`vector_store.py`): query embedding → cosine `embedding <=> query`, ordered via **HNSW index** (`vector_cosine_ops`), project-scoped; `score = 1 − distance`.
+- **Keyword arm** (`keyword_retriever.py`): two OR'd paths —
+  - tsvector FTS `search_vector @@ websearch_to_tsquery('english', q)` (GIN index);
+  - **pg_trgm substring** `content ILIKE '%q%'` (GIN trigram index) — covers CJK / exact terms the English parser can't segment; ranked by `ts_rank_cd + exact-substring boost`.
+  - Independent fallback: on SQL error → empty + `keyword_status="fallback"`, never failing the whole search.
+- **Fusion** (`fusion.py`): Reciprocal Rank Fusion, `contribution = 1/(k+rank)`, `k=60`; cross-arm scores summed, sorted by `(fusion_score, #sources)`, truncated to `top_k`.
+
+### Reranking (`reranker_service.py`)
+
+Optional second-stage **cross-encoder**, **off by default** (`RERANKER_ENABLED=false`).
+
+- When on: hybrid recalls **`RERANK_CANDIDATE_K=30`** candidates → POST to the TEI container `/rerank` → **`BAAI/bge-reranker-v2-m3`** scores each `(query, document)` pair (cross-lingual, far better than vector distance alone) → keep `top_k`. Timeout 30s.
+- Degrades gracefully: TEI unreachable / model not loaded → `RuntimeError` → falls back to vector order (`rerank_status="fallback"`); disabled → `NoopRerankerProvider` (identity).
+- ⚠️ **Scope gap:** reranking runs **only on `/chat`**. The frontend UI always calls **`/agent-chat`**, which does **not** invoke the reranker — so the default demo UI does not rerank (and the reranker is off by default anyway). Wiring rerank into the agent path is a known follow-up.
+
+### Models (`.env.example` demo defaults)
+
+| Role | Model | Notes |
+|---|---|---|
+| LLM | **qwen2.5:7b-instruct** (Ollama) | temp 0.1; tool-calling (required by the agent) |
+| Embedding | **bge-m3** (Ollama) | multilingual, **1024-dim**, EN docs + ZH queries |
+| Reranker | **BAAI/bge-reranker-v2-m3** (TEI) | cross-encoder, off by default |
+| OpenAI mode | gpt-4o-mini / text-embedding-3-small | requires `OPENAI_API_KEY` |
+| Mock mode | MD5→seed→L2 unit vector / first-chunk excerpt | deterministic, no key, CI |
+
+Embedding dimension **1024** is the single source of truth (`EMBEDDING_DIMENSIONS`); the DB column and every provider follow it.
+
 ## Port Map
 
 | Service | Port |
@@ -217,9 +275,8 @@ tool-calls so the agent flow runs in CI without a real model. LLM-emitted Simpli
 Chinese (answers and `zh` translations) is normalized to Traditional Chinese (Taiwan)
 via OpenCC `s2twp`.
 
-> **Hosted vs local scope:** The `openai` path is used for a fast, low-setup POC.
-> The `ollama` path is prepared for private / on-premise scenarios where the LLM
-> must run inside the customer's network. Note the abstraction currently covers
-> the **LLM** only — embeddings are still chosen via `EMBEDDING_PROVIDER`
-> (`openai` / `mock`), so a fully local stack would also need a local embedding
-> provider (a future `EmbeddingProvider` implementation, the same pattern as here).
+> **Hosted vs local scope:** The `openai` path is a fast, low-setup POC; the
+> `ollama` path runs entirely inside the customer's network. The same provider
+> pattern covers embeddings via `EMBEDDING_PROVIDER` (`openai` / `ollama` /
+> `mock`) — `OllamaEmbeddingProvider` (`bge-m3`) gives a fully local stack with
+> no data leaving the host.
