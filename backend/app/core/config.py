@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     # App
-    app_name: str = "OpsKnowledge Agent Lite"
+    app_name: str = "OpsWeave"
     app_version: str = "0.1.0"
     debug: bool = False
 
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # PostgreSQL
     postgres_host: str = "localhost"
     postgres_port: int = 5432
-    postgres_db: str = "opsknowledge"
+    postgres_db: str = "opsweave"
     postgres_user: str = "opsuser"
     postgres_password: str = "opspassword"
 
@@ -43,6 +43,13 @@ class Settings(BaseSettings):
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    # Redis / session
+    redis_url: str = "redis://localhost:6379/0"
+    session_cookie_name: str = "opsweave_session"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
+    session_ttl_hours: int = 24
 
     # Provider selection
     # "openai" — calls OpenAI-compatible API (requires a real OPENAI_API_KEY)

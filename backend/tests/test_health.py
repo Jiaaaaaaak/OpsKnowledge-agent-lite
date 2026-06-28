@@ -5,6 +5,16 @@ from fastapi import Response, status
 from app.api.health import health_check
 
 
+def test_opsweave_settings_expose_redis_and_secure_cookie_defaults():
+    from app.core.config import Settings
+
+    cfg = Settings(_env_file=None)
+    assert cfg.app_name == "OpsWeave"
+    assert cfg.redis_url == "redis://localhost:6379/0"
+    assert cfg.session_cookie_name == "opsweave_session"
+    assert cfg.session_cookie_samesite == "lax"
+
+
 def _call_health() -> tuple[Response, dict]:
     response = Response()
     result = health_check(response)
