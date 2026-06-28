@@ -3,7 +3,7 @@
 [English](OPSWEAVE_EXECUTION_HANDOFF.md) | 繁體中文
 
 更新日期：2026-06-28  
-文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）、Task 4（營運健康）、Task 5（React 登入邊界）已提交，下一個待辦為 Task 6。
+文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）、Task 4（營運健康）、Task 5（React 登入邊界）、Task 6（Bento 儀表板與固定狀態列）已提交，下一個待辦為 Task 7。
 
 ## 1. 專案目標
 
@@ -59,13 +59,13 @@ git log --oneline --decorate -12
 
 ```text
 ## feat/opsweave-foundation
-HEAD = 4999a4e（Task 5 已提交）
+HEAD = d27bee5（Task 6 已提交）
 ```
 
 也就是說：
 
-- `4999a4e` 是目前最後一個已提交 commit（Task 5：React 登入邊界）
-- Task 3、Task 4、Task 5 已完整提交，worktree 沒有 Task 3/4/5 殘留
+- `d27bee5` 是目前最後一個已提交 commit（Task 6：Bento 儀表板與固定狀態列）
+- Task 3–6 已完整提交，worktree 沒有 Task 3/4/5/6 殘留
 - 唯一未提交的是這兩份 handoff 文件（正在更新中）
 
 原始 checkout 仍有使用者未提交文件：
@@ -226,7 +226,8 @@ git diff --check：clean
 
 - `backend/app/services/health_service.py`：module 層 `check_database`、
   `check_vector`、`check_redis`，以及 `build_operational_health`
-- 需登入的 `GET /api/operations/health`（經 `get_current_admin`），回傳
+- 需登入的 `GET /operations/health`（經 `get_current_admin`；Task 6 由
+  `/api/operations/health` 改名以符合代理慣例），回傳
   `status`、`services{api,database,vector,redis}`、`pulse{cpu_percent,
   memory_percent,disk_percent,uptime_seconds}`、`checked_at`
 - 公開 `/health` liveness 不變（DB/pgvector 掛掉仍回 503）
@@ -283,6 +284,42 @@ git diff --check：clean
 
 環境注意事項：前端測試環境需在 `frontend/` 執行 `npm install`（預設無 `node_modules`）。
 
+### Task 6：Bento 儀表板與固定狀態列
+
+已提交 commit：
+
+```text
+d27bee5 feat: 建立 OpsWeave Bento 營運介面
+```
+
+已完成內容：
+
+- `frontend/src/pages/DashboardPage.tsx`：四張 Bento 卡——System Pulse（CPU／記憶體／
+  磁碟／uptime + 更新時間，取自 `getOperationalHealth` 即時值）、Knowledge Metrics、
+  Agent Workload、Activity & Alerts。無後端領域的群組誠實顯示 `0` + `尚無資料`，不捏造
+- `frontend/src/components/layout/StatusBar.tsx`：固定頂部狀態列（整體、PostgreSQL、
+  向量、模型 `not_configured`、進行中任務 `0`）；點擊展開可存取的細節面板
+  （`role="region"`、`aria-expanded`）；切換鈕無障礙名稱為 `系統正常／系統降級`；含登出
+- 登出會清除持久化的 `ProjectContext` 專案選擇，且伺服器登出失敗仍清本地狀態
+  （清掉 Task 5 延後 minor 與品質審查 Important 的未處理 reject）
+- `Sidebar.tsx`：重整為 Workspace／AI Team／Operations（完全依設計）；未實作目的地為停用
+  佔位；移除系統狀態項；品牌改為 OpsWeave。`/dashboard` 設為 index
+- 後端 `/api/operations/health` 改名為 `/operations/health`，與其餘未前綴路由及前端 `/api`
+  代理一致（Task 4 測試同步更新）
+
+審查：規格——無 Critical，一個 Important（PostgreSQL 標籤／狀態無障礙名稱）已修；
+品質——無 Critical，一個 Important（登出未處理 reject）已修，minor 也補。
+
+既有驗證結果：
+
+```text
+frontend：12 tests passed
+npm run build：exit 0
+backend 完整 suite：239 passed
+git diff --check：clean
+live stack：經代理驗證 login + GET /operations/health
+```
+
 ## 5. 已知 baseline 問題
 
 共享 venv 組合：
@@ -307,19 +344,19 @@ AnyIO 4.13.0
 
 ## 6. 後續執行順序
 
-### 6.1 下一個：Task 6
+### 6.1 下一個：Task 7
 
-Task 3、Task 4、Task 5 已完成並提交（`d2242c8`、`7b19d1e`、`4999a4e`）。接著依
-implementation plan 進行 Task 6（Modern Bento Dashboard 與固定狀態列）：使用新的
-實作代理、走 TDD，提交前先做規格審查與品質審查。接 logout 按鈕時，記得一併清除
-`ProjectContext` 持久化的專案選擇（Task 5 延後的 minor）。
+Task 3–6 已完成並提交（`d2242c8`、`7b19d1e`、`4999a4e`、`d27bee5`）。接著依
+implementation plan 進行 Task 7（整體 stack 驗證與文件：full-stack 跑通、e2e、文件）。
+注意：本機 live stack 走 Docker Desktop，dev 容器在 WSL2 下不會穩定 hot-reload，改完程式
+請 `docker compose restart backend frontend`。狀態列切換鈕會顯示 `系統正常／系統降級`、
+細節面板顯示 `PostgreSQL`——正是 Task 7 e2e 會斷言的字串。
 
 ### 6.2 剩餘 foundation 任務
 
 剩餘 foundation 任務：
 
 ```text
-Task 6：Modern Bento Dashboard 與固定狀態列
 Task 7：整體 stack 驗證與文件
 ```
 
@@ -348,10 +385,10 @@ Operational Completion
 
 續作時先做這三件事：
 
-1. 確認 `HEAD` 為 `4999a4e`，worktree 沒有 Task 3/4/5 殘留
+1. 確認 `HEAD` 為 `d27bee5`，worktree 沒有 Task 3/4/5/6 殘留
 2. backend 測試環境需 `argon2-cffi`、`pytest_asyncio`、`redis`、`psutil`；
    前端測試環境需在 `frontend/` 執行 `npm install`
-3. 依 implementation plan 開始 Task 6
+3. 依 implementation plan 開始 Task 7
 
 ## 8. 建議恢復提示詞
 
@@ -359,6 +396,6 @@ Operational Completion
 
 ```text
 請依 docs/OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md 繼續，分支 feat/opsweave-foundation。
-Task 3、Task 4、Task 5 已提交（d2242c8、7b19d1e、4999a4e）。開始 Task 6
-（Modern Bento Dashboard 與固定狀態列），走 TDD，提交前先做規格審查與品質審查。
+Task 3–6 已提交（d2242c8、7b19d1e、4999a4e、d27bee5）。開始 Task 7
+（整體 stack 驗證與文件），提交前先做規格審查與品質審查。
 ```

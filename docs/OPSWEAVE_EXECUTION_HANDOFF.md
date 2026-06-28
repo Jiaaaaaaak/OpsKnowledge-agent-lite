@@ -5,8 +5,8 @@ English | [繁體中文](OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md)
 Updated: 2026-06-28  
 Purpose: this is the single handoff source for continuing work on
 `feat/opsweave-foundation`. It reflects the actual current worktree state.
-Tasks 3 (auth), 4 (operational health) and 5 (React login boundary) are
-committed; next is Task 6.
+Tasks 3 (auth), 4 (operational health), 5 (React login boundary) and 6 (Bento
+dashboard and sticky status bar) are committed; next is Task 7.
 
 ## Project Goal
 
@@ -62,13 +62,13 @@ Actual current state:
 
 ```text
 ## feat/opsweave-foundation
-HEAD = 4999a4e (Task 5 committed)
+HEAD = d27bee5 (Task 6 committed)
 ```
 
 This means:
 
-- `4999a4e` is the latest committed change (Task 5: React login boundary)
-- Tasks 3, 4 and 5 are fully committed; the worktree has no Task 3/4/5 leftovers
+- `d27bee5` is the latest committed change (Task 6: Bento dashboard + status bar)
+- Tasks 3–6 are fully committed; the worktree has no Task 3/4/5/6 leftovers
 - the only uncommitted files are these two handoff docs (being updated now)
 
 Do not modify or commit the user-owned files in the original checkout:
@@ -236,7 +236,8 @@ Delivered:
 
 - `backend/app/services/health_service.py`: module-level `check_database`,
   `check_vector`, `check_redis`, plus `build_operational_health`
-- authenticated `GET /api/operations/health` (via `get_current_admin`) returning
+- authenticated `GET /operations/health` (via `get_current_admin`; renamed from
+  `/api/operations/health` in Task 6 for proxy consistency) returning
   `status`, `services{api,database,vector,redis}`, `pulse{cpu_percent,
   memory_percent,disk_percent,uptime_seconds}`, `checked_at`
 - public `/health` liveness unchanged (still 503 when DB/pgvector down)
@@ -297,6 +298,48 @@ git diff --check: clean
 Environment note: the frontend test env needs `npm install` in `frontend/`
 (no `node_modules` by default).
 
+### Task 6: Bento Dashboard and Sticky Status Bar
+
+Commit:
+
+```text
+d27bee5 feat: 建立 OpsWeave Bento 營運介面
+```
+
+Delivered:
+
+- `frontend/src/pages/DashboardPage.tsx`: four approved Bento groups — System
+  Pulse (live CPU/memory/disk/uptime + refresh time from `getOperationalHealth`),
+  Knowledge Metrics, Agent Workload, Activity & Alerts. Foundation-empty groups
+  render `0` + `尚無資料`, never fabricated activity
+- `frontend/src/components/layout/StatusBar.tsx`: sticky top bar (overall,
+  PostgreSQL, vector, model `not_configured`, active-tasks `0`); click expands an
+  accessible (`role="region"`, `aria-expanded`) detail panel; toggle accessible
+  name is `系統正常/系統降級`; includes logout
+- logout clears the persisted `ProjectContext` selection and still clears local
+  state if the server logout fails (resolves the Task 5 deferred minor and the
+  quality-review Important about an unhandled rejection)
+- `Sidebar.tsx`: regrouped Workspace / AI Team / Operations exactly per design;
+  not-yet-built destinations are disabled placeholders; no System Status nav item;
+  rebranded to OpsWeave. `/dashboard` is the index route
+- backend route renamed `/api/operations/health` → `/operations/health` for
+  consistency with all other unprefixed routes and the frontend `/api` proxy
+  (Task 4 test updated)
+
+Reviews: spec — no Critical; one Important (PostgreSQL labeling / accessible
+status name) resolved. quality — no Critical; one Important (logout unhandled
+rejection) resolved; minors addressed.
+
+Recorded verification:
+
+```text
+frontend: 12 tests passed
+npm run build: exit 0
+backend full suite: 239 passed
+git diff --check: clean
+live stack: login + GET /operations/health verified through the proxy
+```
+
 ## Known Baseline Issue
 
 Shared local environment:
@@ -321,18 +364,19 @@ Testing rule for later work:
 
 ## Execution Order
 
-### Next: Task 6
+### Next: Task 7
 
-Tasks 3, 4 and 5 are complete and committed (`d2242c8`, `7b19d1e`, `4999a4e`).
-Start Task 6 (Modern Bento dashboard and sticky status bar) per the
-implementation plan, using a fresh implementation agent, TDD, then spec review
-and quality review before committing. When wiring the logout button, also clear
-the persisted `ProjectContext` selection (deferred Task 5 minor).
+Tasks 3–6 are complete and committed (`d2242c8`, `7b19d1e`, `4999a4e`, `d27bee5`).
+Start Task 7 (verify the foundation as one stack: full-stack run, e2e, and
+documentation) per the implementation plan. Note: the live stack on this machine
+uses Docker Desktop; the dev containers do not hot-reload reliably on WSL2, so
+`docker compose restart backend frontend` after code changes. The status bar
+toggle exposes `系統正常/系統降級` and the detail panel shows `PostgreSQL` — the
+strings the planned Task 7 e2e asserts.
 
 ### Remaining Foundation Tasks
 
 ```text
-Task 6: Modern Bento dashboard and sticky status bar
 Task 7: full-stack verification and documentation
 ```
 
@@ -359,16 +403,16 @@ Operational Completion
 
 Resume with these checks:
 
-1. Confirm `HEAD` is `4999a4e` and the worktree has no Task 3/4/5 leftovers.
+1. Confirm `HEAD` is `d27bee5` and the worktree has no Task 3/4/5/6 leftovers.
 2. Backend test env needs `argon2-cffi`, `pytest_asyncio`, `redis`, `psutil`;
    frontend test env needs `npm install` in `frontend/`.
-3. Begin Task 6 from the implementation plan.
+3. Begin Task 7 from the implementation plan.
 
 ## Suggested Resume Prompt
 
 ```text
 Continue from docs/OPSWEAVE_EXECUTION_HANDOFF.md on feat/opsweave-foundation.
-Tasks 3, 4 and 5 are committed (d2242c8, 7b19d1e, 4999a4e). Start Task 6
-(Modern Bento dashboard and sticky status bar) using TDD, then run spec review
-and quality review before committing.
+Tasks 3–6 are committed (d2242c8, 7b19d1e, 4999a4e, d27bee5). Start Task 7
+(verify the foundation as one stack + documentation) using TDD where applicable,
+then run spec review and quality review before committing.
 ```
