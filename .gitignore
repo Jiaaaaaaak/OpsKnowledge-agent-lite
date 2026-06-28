@@ -44,3 +44,4 @@ demo_data/documents/pdf/
 
 # Superpowers 工具暫存狀態（brainstorm、server.pid 等）
 .superpowers/
+.worktrees/
