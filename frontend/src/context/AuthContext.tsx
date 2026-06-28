@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import {
   getCurrentAdministrator,
+  bootstrap as apiBootstrap,
   login as apiLogin,
   logout as apiLogout,
   Administrator,
@@ -9,6 +10,7 @@ import {
 interface AuthContextType {
   administrator: Administrator | null;
   loading: boolean;
+  bootstrap: (username: string, password: string) => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -28,6 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  const bootstrap = useCallback(async (username: string, password: string) => {
+    // 首次安裝建立第一個管理員；後端同時設好 session cookie，等同直接登入。
+    const admin = await apiBootstrap(username, password);
+    setAdministrator(admin);
+  }, []);
+
   const login = useCallback(async (username: string, password: string) => {
     const admin = await apiLogin(username, password);
     setAdministrator(admin);
@@ -39,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ administrator, loading, login, logout }}>
+    <AuthContext.Provider value={{ administrator, loading, bootstrap, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -10,6 +10,9 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: false,
+    // 單元測試只跑 src/ 下的 *.test.tsx；e2e/ 由 Playwright 跑，不能被 vitest 收進來。
+    include: ['src/**/*.test.{ts,tsx}'],
+    exclude: ['**/node_modules/**', 'e2e/**'],
   },
   server: {
     host: '0.0.0.0',

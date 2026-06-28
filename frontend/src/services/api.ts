@@ -29,6 +29,10 @@ export interface Administrator {
 }
 
 export const getCurrentAdministrator = (): Promise<Administrator> => get('/auth/me');
+export const getAuthStatus = (): Promise<{ bootstrap_required: boolean }> =>
+  get('/auth/status');
+export const bootstrap = (username: string, password: string): Promise<Administrator> =>
+  post('/auth/bootstrap', { username, password });
 export const login = (username: string, password: string): Promise<Administrator> =>
   post('/auth/login', { username, password });
 export const logout = (): Promise<{ message: string }> => post('/auth/logout');

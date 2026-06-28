@@ -1,8 +1,8 @@
-# OpsKnowledge Agent Lite
+# OpsWeave
 
 [English](README.md) | 繁體中文
 
-OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG 知識庫系統。它能匯入 PDF SOP 與技術手冊（對掃描頁有 OCR fallback），切塊並嵌入 PostgreSQL + pgvector，透過附引用來源的 RAG 回答維運問題 — 可使用固定流程的 `/chat`，或由 LLM 自主決策的 tool-calling agent `/agent-chat` — 並記錄 AI 執行過程以利稽核。多語 embedding（bge-m3）支援跨語檢索，答案統一正規化為繁體中文。
+OpsWeave 是一個面向 IT 維運文件的面試展示型 RAG 知識庫系統。它能匯入 PDF SOP 與技術手冊（對掃描頁有 OCR fallback），切塊並嵌入 PostgreSQL + pgvector，透過附引用來源的 RAG 回答維運問題 — 可使用固定流程的 `/chat`，或由 LLM 自主決策的 tool-calling agent `/agent-chat` — 並記錄 AI 執行過程以利稽核。多語 embedding（bge-m3）支援跨語檢索，答案統一正規化為繁體中文。
 
 ## 語言說明 / Language
 
@@ -32,6 +32,15 @@ OpsKnowledge Agent Lite 是一個面向 IT 維運文件的面試展示型 RAG �
 | 多語 / 跨語 | bge-m3 embedding 讓中文提問可查英文文件；答案正規化為繁體中文，並附翻譯後的引用 snippet |
 | 可觀測性 | 每一次 AI 工具呼叫皆記錄至 PostgreSQL，便於稽核 |
 | UI | React 引導式流程，涵蓋上傳、問答與 Agent 執行紀錄檢視 |
+
+> **需要管理員登入。** 應用程式現在受伺服器端 session（HTTP-only cookie）保護。
+> 首次啟動時尚未有任何管理員，因此登入頁會**初始化第一位管理員**
+> （等同 `POST /auth/bootstrap`）；之後同一頁即為一般 session 登入。
+> 操作型 **Dashboard**（`/dashboard`）與常駐狀態列都位於這道登入閘之後。
+>
+> **範圍（如實說明）：** 今天真正存在的是登入閘界線、操作型 Dashboard，以及上述既有的
+> RAG 知識庫（內建 Knowledge Agent）。更宏大的多個內建 agent、channel 與整合等願景目前
+> 僅為**設計階段／未來工作**，尚未實作。
 
 ## 技術堆疊
 
@@ -296,7 +305,7 @@ PYTHONPATH=. python scripts/create_tables.py
 
 **方式 B — 原生 SQL（psql）：**
 ```bash
-psql -h localhost -U opsuser -d opsknowledge -f backend/migrations/001_initial_schema.sql
+psql -h localhost -U opsuser -d opsweave -f backend/migrations/001_initial_schema.sql
 ```
 
 **方式 C — Docker Compose（首次啟動時自動建立）：**
@@ -317,7 +326,7 @@ ORDER BY table_name;
 ## 專案結構
 
 ```
-opsknowledge-agent-lite/
+opsweave/
   backend/           FastAPI 服務
     app/
       core/          設定、日誌
@@ -462,10 +471,11 @@ React UI 是跑完整 demo 流程的推薦方式，鏡像了後端 API surface�
 
 | 頁面 | 用途 |
 |---|---|
-| 專案設定 | 建立或選擇目前專案 |
-| 知識庫問答流程 | 引導式流程：上傳 PDF → 確認 chunk → RAG 附引用來源問答 |
-| Agent 執行紀錄 | 瀏覽 `agent_runs`；drill 進 `tool_calls`（input / output / 錯誤 / 延遲） |
-| 系統狀態 | 後端服務健康度與連線狀態 |
+| 登入（`/login`） | 管理員 session 登入；首次啟動時會初始化第一位管理員 |
+| Dashboard（`/dashboard`） | 操作型總覽：系統脈動，以及知識／agent／活動分組 |
+| 專案設定（`/projects`） | 建立或選擇目前專案 |
+| 知識庫問答流程（`/knowledge/workflow`） | 引導式流程：上傳 PDF → 確認 chunk → RAG 附引用來源問答 |
+| Agent 執行紀錄（`/agent-runs`） | 瀏覽 `agent_runs`；drill 進 `tool_calls`（input / output / 錯誤 / 延遲） |
 
 ### 用 Docker 跑（demo 推薦）
 ```bash

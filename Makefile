@@ -1,4 +1,4 @@
-# OpsKnowledge Agent Lite — common Docker Compose / dev commands
+# OpsWeave — common Docker Compose / dev commands
 #
 # Usage:
 #   make up        # build & start the full stack (postgres + ollama + backend + frontend)

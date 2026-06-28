@@ -1,4 +1,4 @@
-# OpsKnowledge Agent Lite
+# OpsWeave
 
 English | [繁體中文](README.zh-TW.md)
 
@@ -34,6 +34,17 @@ review internationally.
 | Multilingual / cross-lingual | bge-m3 embeddings answer Chinese questions over English docs; answers normalized to Traditional Chinese, with translated citation snippets |
 | Observability | Every AI tool call logged to PostgreSQL for auditability |
 | UI | React guided workflow for uploads, Q&A, and agent run inspection |
+
+> **Administrator login required.** The app is now gated behind a server-side session
+> (HTTP-only cookie). On first run there is no administrator yet, so the login page
+> **bootstraps the first administrator** (equivalently `POST /auth/bootstrap`);
+> afterwards the same page is a normal session login. An operational **Dashboard**
+> (`/dashboard`) and a sticky status bar sit behind this gate.
+>
+> **Scope (honest):** what is real today is the auth boundary, the operational
+> dashboard, and the existing RAG knowledge base described above (the built-in
+> Knowledge Agent). The broader vision of multiple built-in agents, channels, and
+> integrations is **design-only / future work**, not implemented.
 
 ## Tech Stack
 
@@ -306,7 +317,7 @@ PYTHONPATH=. python scripts/create_tables.py
 
 **Option B — Raw SQL (psql):**
 ```bash
-psql -h localhost -U opsuser -d opsknowledge -f backend/migrations/001_initial_schema.sql
+psql -h localhost -U opsuser -d opsweave -f backend/migrations/001_initial_schema.sql
 ```
 
 **Option C — Docker Compose (automatic on backend start):**
@@ -325,7 +336,7 @@ ORDER BY table_name;
 ## Project Structure
 
 ```
-opsknowledge-agent-lite/
+opsweave/
   backend/           FastAPI service
     app/
       core/          Config, logging
@@ -475,10 +486,11 @@ backend API surface and is what an interviewer or stakeholder will actually see.
 
 | Page | Route | Purpose |
 |---|---|---|
+| Login | `/login` | Administrator session login; on first run it bootstraps the first administrator |
+| Dashboard | `/dashboard` | Operational overview: system pulse plus knowledge / agent / activity groups |
 | Project Setup | `/projects` | Create or select the active project (kept in React context) |
 | Knowledge Workflow | `/knowledge/workflow` | Guided flow: upload PDF → confirm chunks → RAG chat with citations |
 | Agent Runs | `/agent-runs` | Browse `agent_runs`; drill into `tool_calls` (input / output / errors / latency per tool) |
-| System Status | `/status` | Backend health and service connectivity |
 
 ### Run with Docker (preferred for demo)
 ```bash

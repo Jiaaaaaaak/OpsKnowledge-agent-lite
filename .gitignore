@@ -28,6 +28,12 @@ backend/data/uploads/
 # Node.js
 node_modules/
 
+# Playwright e2e artifacts（執行產物，不進版控）
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.cache/
+
 # IDE
 .idea/
 .vscode/

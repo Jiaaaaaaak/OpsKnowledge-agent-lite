@@ -44,7 +44,7 @@ it('shows a generic alert when credentials are rejected', async () => {
     </AuthProvider>,
   );
 
-  await userEvent.type(await screen.findByLabelText('帳號'), 'root');
+  await userEvent.type(await screen.findByLabelText('使用者名稱'), 'root');
   await userEvent.type(screen.getByLabelText('密碼'), 'wrong');
   await userEvent.click(screen.getByRole('button', { name: '登入' }));
 
@@ -68,11 +68,39 @@ it('enters the application after a successful login', async () => {
     </AuthProvider>,
   );
 
-  await userEvent.type(await screen.findByLabelText('帳號'), 'root');
+  await userEvent.type(await screen.findByLabelText('使用者名稱'), 'root');
   await userEvent.type(screen.getByLabelText('密碼'), 'correct');
   await userEvent.click(screen.getByRole('button', { name: '登入' }));
 
   await waitFor(() => expect(api.login).toHaveBeenCalledWith('root', 'correct'));
   // 登入成功後導入應用外殼。
+  expect(await screen.findByText('DASHBOARD')).toBeInTheDocument();
+});
+
+it('switches to administrator bootstrap when no administrator exists', async () => {
+  vi.spyOn(api, 'getCurrentAdministrator').mockRejectedValue(new Error('401'));
+  vi.spyOn(api, 'getAuthStatus').mockResolvedValue({ bootstrap_required: true });
+  vi.spyOn(api, 'bootstrap').mockResolvedValue(ADMIN);
+
+  render(
+    <AuthProvider>
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<div>DASHBOARD</div>} />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+
+  // 首次安裝：應切換到「建立管理員」而非一般登入。
+  const submit = await screen.findByRole('button', { name: '建立管理員' });
+  await userEvent.type(screen.getByLabelText('使用者名稱'), 'admin');
+  await userEvent.type(screen.getByLabelText('密碼'), 'correct horse battery staple');
+  await userEvent.click(submit);
+
+  await waitFor(() =>
+    expect(api.bootstrap).toHaveBeenCalledWith('admin', 'correct horse battery staple'),
+  );
   expect(await screen.findByText('DASHBOARD')).toBeInTheDocument();
 });
