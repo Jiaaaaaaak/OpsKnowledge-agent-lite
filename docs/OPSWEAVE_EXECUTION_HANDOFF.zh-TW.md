@@ -3,7 +3,7 @@
 [English](OPSWEAVE_EXECUTION_HANDOFF.md) | 繁體中文
 
 更新日期：2026-06-28  
-文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth service 與 API）已提交，下一個待辦為 Task 4。
+文件目的：作為 `feat/opsweave-foundation` 的單一續作交接來源；內容已依目前實際工作區狀態更新。Task 3（auth）與 Task 4（營運健康）已提交，下一個待辦為 Task 5。
 
 ## 1. 專案目標
 
@@ -59,13 +59,13 @@ git log --oneline --decorate -12
 
 ```text
 ## feat/opsweave-foundation
-HEAD = d2242c8（Task 3 已提交）
+HEAD = 7b19d1e（Task 4 已提交）
 ```
 
 也就是說：
 
-- `d2242c8` 是目前最後一個已提交 commit（Task 3：auth service 與 API）
-- Task 3 已完整提交，worktree 沒有 Task 3 殘留
+- `7b19d1e` 是目前最後一個已提交 commit（Task 4：營運健康聚合）
+- Task 3、Task 4 已完整提交，worktree 沒有 Task 3/4 殘留
 - 唯一未提交的是這兩份 handoff 文件（正在更新中）
 
 原始 checkout 仍有使用者未提交文件：
@@ -214,6 +214,39 @@ git diff --check：clean
   測試環境；先前曾因共享 venv 缺 `pytest_asyncio` / `argon2` 而卡關。執行 auth
   測試前請先安裝 backend requirements。
 
+### Task 4：營運健康聚合
+
+已提交 commit：
+
+```text
+7b19d1e feat: 聚合 OpsWeave 營運健康狀態
+```
+
+已完成內容：
+
+- `backend/app/services/health_service.py`：module 層 `check_database`、
+  `check_vector`、`check_redis`，以及 `build_operational_health`
+- 需登入的 `GET /api/operations/health`（經 `get_current_admin`），回傳
+  `status`、`services{api,database,vector,redis}`、`pulse{cpu_percent,
+  memory_percent,disk_percent,uptime_seconds}`、`checked_at`
+- 公開 `/health` liveness 不變（DB/pgvector 掛掉仍回 503）
+- Redis `PING` 帶 1 秒 connect/read 逾時並明確關閉連線；psutil pulse 於 import
+  時先 prime 基準；任一依賴失敗只降級、不外拋
+- 已清品質審查 Important：`_pulse()` 以 try/except 包覆，主機 metrics 取不到時回
+  `None` 而非 500，維持「健康端點不外拋」契約
+- `redis` 與 `psutil`（已列於 `backend/requirements.txt`）需安裝於測試環境
+
+既有驗證結果：
+
+```text
+tests/test_health.py：12 passed
+完整 backend suite：239 passed（無卡死）
+git diff --check：clean
+```
+
+審查：規格——無 Critical/Important；品質——無 Critical，一個 Important
+（`_pulse()` 未防護）已修，minor 也補（1 秒逾時斷言、cpu 預熱、關閉連線）。
+
 ## 5. 已知 baseline 問題
 
 共享 venv 組合：
@@ -238,17 +271,16 @@ AnyIO 4.13.0
 
 ## 6. 後續執行順序
 
-### 6.1 下一個：Task 4
+### 6.1 下一個：Task 5
 
-Task 3 已完成並提交（`d2242c8`）。接著依 implementation plan 進行 Task 4
-（營運健康聚合）：使用新的實作代理、走 TDD，提交前先做規格審查與品質審查。
+Task 3、Task 4 已完成並提交（`d2242c8`、`7b19d1e`）。接著依 implementation plan
+進行 Task 5（React 登入邊界）：使用新的實作代理、走 TDD，提交前先做規格審查與品質審查。
 
 ### 6.2 剩餘 foundation 任務
 
 剩餘 foundation 任務：
 
 ```text
-Task 4：營運健康聚合
 Task 5：React 登入邊界
 Task 6：Modern Bento Dashboard 與固定狀態列
 Task 7：整體 stack 驗證與文件
@@ -279,9 +311,9 @@ Operational Completion
 
 續作時先做這三件事：
 
-1. 確認 `HEAD` 為 `d2242c8`，worktree 沒有 Task 3 殘留
-2. 確認 backend 測試環境已安裝 `argon2-cffi` 與 `pytest_asyncio`
-3. 依 implementation plan 開始 Task 4
+1. 確認 `HEAD` 為 `7b19d1e`，worktree 沒有 Task 3/4 殘留
+2. 確認 backend 測試環境已安裝 `argon2-cffi`、`pytest_asyncio`、`redis`、`psutil`
+3. 依 implementation plan 開始 Task 5
 
 ## 8. 建議恢復提示詞
 
@@ -289,6 +321,6 @@ Operational Completion
 
 ```text
 請依 docs/OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md 繼續，分支 feat/opsweave-foundation。
-Task 3 已提交（d2242c8）。開始 Task 4（營運健康聚合），走 TDD，
+Task 3、Task 4 已提交（d2242c8、7b19d1e）。開始 Task 5（React 登入邊界），走 TDD，
 提交前先做規格審查與品質審查。
 ```

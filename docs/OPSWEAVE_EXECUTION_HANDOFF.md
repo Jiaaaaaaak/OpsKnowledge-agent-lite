@@ -5,7 +5,7 @@ English | [繁體中文](OPSWEAVE_EXECUTION_HANDOFF.zh-TW.md)
 Updated: 2026-06-28  
 Purpose: this is the single handoff source for continuing work on
 `feat/opsweave-foundation`. It reflects the actual current worktree state.
-Task 3 (auth service and API) is now committed; the next open task is Task 4.
+Task 3 (auth) and Task 4 (operational health) are committed; next is Task 5.
 
 ## Project Goal
 
@@ -61,13 +61,13 @@ Actual current state:
 
 ```text
 ## feat/opsweave-foundation
-HEAD = d2242c8 (Task 3 committed)
+HEAD = 7b19d1e (Task 4 committed)
 ```
 
 This means:
 
-- `d2242c8` is the latest committed change (Task 3: auth service and API)
-- Task 3 is fully committed; the worktree has no Task 3 leftovers
+- `7b19d1e` is the latest committed change (Task 4: operational health)
+- Tasks 3 and 4 are fully committed; the worktree has no Task 3/4 leftovers
 - the only uncommitted files are these two handoff docs (being updated now)
 
 Do not modify or commit the user-owned files in the original checkout:
@@ -223,6 +223,41 @@ Environment note:
   missing `pytest_asyncio` / `argon2` in the shared venv. Install backend
   requirements before running the auth suite.
 
+### Task 4: Operational Health Aggregation
+
+Commit:
+
+```text
+7b19d1e feat: 聚合 OpsWeave 營運健康狀態
+```
+
+Delivered:
+
+- `backend/app/services/health_service.py`: module-level `check_database`,
+  `check_vector`, `check_redis`, plus `build_operational_health`
+- authenticated `GET /api/operations/health` (via `get_current_admin`) returning
+  `status`, `services{api,database,vector,redis}`, `pulse{cpu_percent,
+  memory_percent,disk_percent,uptime_seconds}`, `checked_at`
+- public `/health` liveness unchanged (still 503 when DB/pgvector down)
+- Redis `PING` with a 1s connect/read timeout and explicit client close; psutil
+  pulse primed once at import; any dependency failure degrades, never raises
+- quality-review Important resolved: `_pulse()` is exception-guarded and reports
+  `None` metrics instead of 500-ing, preserving the never-raise contract
+- `redis` and `psutil` (already in `backend/requirements.txt`) must be installed
+  in the test environment
+
+Recorded verification:
+
+```text
+tests/test_health.py: 12 passed
+full backend suite: 239 passed (no hang)
+git diff --check: clean
+```
+
+Reviews: spec — no Critical/Important; quality — no Critical, one Important
+(`_pulse()` unguarded) resolved, minors addressed (1s-timeout assertion, cpu
+priming, client close).
+
 ## Known Baseline Issue
 
 Shared local environment:
@@ -247,16 +282,15 @@ Testing rule for later work:
 
 ## Execution Order
 
-### Next: Task 4
+### Next: Task 5
 
-Task 3 is complete and committed (`d2242c8`). Start Task 4 (operational health
-aggregation) per the implementation plan, using a fresh implementation agent,
-TDD, then spec review and quality review before committing.
+Tasks 3 and 4 are complete and committed (`d2242c8`, `7b19d1e`). Start Task 5
+(React authentication boundary) per the implementation plan, using a fresh
+implementation agent, TDD, then spec review and quality review before committing.
 
 ### Remaining Foundation Tasks
 
 ```text
-Task 4: operational health aggregation
 Task 5: React authentication boundary
 Task 6: Modern Bento dashboard and sticky status bar
 Task 7: full-stack verification and documentation
@@ -285,14 +319,16 @@ Operational Completion
 
 Resume with these checks:
 
-1. Confirm `HEAD` is `d2242c8` and the worktree has no Task 3 leftovers.
-2. Ensure the backend test environment has `argon2-cffi` and `pytest_asyncio`.
-3. Begin Task 4 from the implementation plan.
+1. Confirm `HEAD` is `7b19d1e` and the worktree has no Task 3/4 leftovers.
+2. Ensure the backend test environment has `argon2-cffi`, `pytest_asyncio`,
+   `redis`, and `psutil` installed.
+3. Begin Task 5 from the implementation plan.
 
 ## Suggested Resume Prompt
 
 ```text
 Continue from docs/OPSWEAVE_EXECUTION_HANDOFF.md on feat/opsweave-foundation.
-Task 3 is committed (d2242c8). Start Task 4 (operational health aggregation)
-using TDD, then run spec review and quality review before committing.
+Tasks 3 and 4 are committed (d2242c8, 7b19d1e). Start Task 5 (React
+authentication boundary) using TDD, then run spec review and quality review
+before committing.
 ```
