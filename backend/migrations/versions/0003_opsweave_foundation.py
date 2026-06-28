@@ -87,6 +87,12 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name="uq_admin_sessions_token_hash"),
     )
     op.create_index(
+        "idx_admin_sessions_administrator_id",
+        "admin_sessions",
+        ["administrator_id"],
+        unique=False,
+    )
+    op.create_index(
         "idx_admin_sessions_expires_at",
         "admin_sessions",
         ["expires_at"],
@@ -96,5 +102,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("idx_admin_sessions_expires_at", table_name="admin_sessions")
+    op.drop_index("idx_admin_sessions_administrator_id", table_name="admin_sessions")
     op.drop_table("admin_sessions")
     op.drop_table("administrators")

@@ -22,7 +22,10 @@ class Administrator(PKMixin, TimestampMixin, Base):
 
 class AdminSession(PKMixin, TimestampMixin, Base):
     __tablename__ = "admin_sessions"
-    __table_args__ = (Index("idx_admin_sessions_expires_at", "expires_at"),)
+    __table_args__ = (
+        Index("idx_admin_sessions_administrator_id", "administrator_id"),
+        Index("idx_admin_sessions_expires_at", "expires_at"),
+    )
 
     administrator_id = Column(
         UUID(as_uuid=True),
