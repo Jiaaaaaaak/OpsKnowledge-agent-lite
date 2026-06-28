@@ -138,8 +138,17 @@ def run_agent_chat(project_id: uuid.UUID, body: ChatRequest, db: Session) -> Cha
     retrieval = get_retrieval_service(db_session=db)
     llm = get_llm_provider()
 
+    # 弱模型（如 qwen2.5:3b）容易忽略埋在長提示詞中間的語言規則，故依提問語言
+    # 用程式判斷後，把強制語言指令硬插到 system prompt 最前面、且用目標語言書寫。
+    system_content = _AGENT_SYSTEM_PROMPT
+    if detect_language(body.question) == "zh":
+        system_content = (
+            "最高優先規則：使用者以中文提問，你必須全程使用「繁體中文（台灣）」作答，"
+            "不得使用英文，也不得使用簡體中文。\n\n"
+        ) + _AGENT_SYSTEM_PROMPT
+
     messages: list[dict] = [
-        {"role": "system", "content": _AGENT_SYSTEM_PROMPT},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": body.question},
     ]
     accumulated_hits: dict[str, dict] = {}  # chunk_id -> hit，去重並保留首見順序
