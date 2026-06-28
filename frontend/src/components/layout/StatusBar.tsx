@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronDown, LogOut } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { getOperationalHealth, OperationalHealth } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
-import { useProject } from '../../context/ProjectContext';
 
 function dot(state: string): string {
   // connected/ok → 綠；其餘（disconnected/degraded/not_configured）→ 琥珀/紅。
@@ -29,9 +26,6 @@ function Pill({ label, state }: { label: string; state: string }) {
 export default function StatusBar() {
   const [health, setHealth] = useState<OperationalHealth | null>(null);
   const [open, setOpen] = useState(false);
-  const { administrator, logout } = useAuth();
-  const { setCurrentProject } = useProject();
-  const navigate = useNavigate();
 
   useEffect(() => {
     getOperationalHealth()
@@ -50,20 +44,9 @@ export default function StatusBar() {
   const statusLabel =
     overall === 'ok' ? '系統正常' : overall === 'degraded' ? '系統降級' : '系統檢查中';
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch {
-      // 伺服器登出失敗仍清本地狀態並導向登入頁（不讓 reject 變成未處理例外）。
-    }
-    // 登出時一併清掉持久化的專案選擇，避免共用機器殘留上一位使用者的選擇。
-    setCurrentProject(null);
-    navigate('/login', { replace: true });
-  };
-
   return (
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-      <div className="flex h-10 items-center justify-between px-6">
+      <div className="flex h-10 items-center px-6">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -83,20 +66,6 @@ export default function StatusBar() {
             className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
           />
         </button>
-
-        <div className="flex items-center gap-3">
-          {administrator && (
-            <span className="text-xs text-slate-500">{administrator.username}</span>
-          )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            登出
-          </button>
-        </div>
       </div>
 
       {open && (

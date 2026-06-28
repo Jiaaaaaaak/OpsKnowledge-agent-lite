@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
   BookOpen,
@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ListChecks,
   ListTree,
+  LogOut,
   MessageSquare,
   Plug,
   Radio,
@@ -14,6 +15,7 @@ import {
   Users,
   Workflow,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { useProject } from '../../context/ProjectContext';
 
 // to 有值 = 已實作可點；to 省略 = foundation 之後才會有的目的地，顯示為停用佔位，
@@ -51,7 +53,20 @@ const navGroups = [
 
 export default function Sidebar() {
   const location = useLocation();
-  const { currentProject } = useProject();
+  const navigate = useNavigate();
+  const { currentProject, setCurrentProject } = useProject();
+  const { administrator, logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // 伺服器登出失敗仍清本地狀態並導向登入頁（不讓 reject 變成未處理例外）。
+    }
+    // 登出時一併清掉持久化的專案選擇，避免共用機器殘留上一位使用者的選擇。
+    setCurrentProject(null);
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0">
@@ -131,12 +146,29 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      <div className="p-4 border-t border-slate-800 shrink-0">
-        <div className="text-xs text-slate-500">
-          OpsWeave
-          <br />
-          Version 0.1.0
-        </div>
+      <div className="p-4 border-t border-slate-800 shrink-0 space-y-3">
+        {administrator && (
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-white">
+              {administrator.username.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-white" title={administrator.username}>
+                {administrator.username}
+              </p>
+              <p className="text-xs text-slate-500">管理員</p>
+            </div>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          登出
+        </button>
+        <div className="text-xs text-slate-600">OpsWeave · v0.1.0</div>
       </div>
     </div>
   );
