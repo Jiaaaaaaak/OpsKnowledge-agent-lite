@@ -12,7 +12,9 @@ def test_opsweave_settings_expose_redis_and_secure_cookie_defaults():
     assert cfg.app_name == "OpsWeave"
     assert cfg.redis_url == "redis://localhost:6379/0"
     assert cfg.session_cookie_name == "opsweave_session"
+    assert cfg.session_cookie_secure is False
     assert cfg.session_cookie_samesite == "lax"
+    assert cfg.session_ttl_hours == 24
 
 
 def _call_health() -> tuple[Response, dict]:

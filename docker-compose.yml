@@ -33,8 +33,6 @@ services:
     image: redis:7-alpine
     container_name: opsweave_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -87,7 +85,8 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     # compose network 內以 service 名互連，覆蓋 .env 預設的 localhost
     environment:
       POSTGRES_HOST: postgres
